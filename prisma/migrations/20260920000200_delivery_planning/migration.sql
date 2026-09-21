@@ -1,0 +1,2 @@
+ALTER TABLE "WeeklyForecast" ADD COLUMN "nextDeliveryDate" DATE, ADD COLUMN "followingDeliveryDate" DATE;
+ALTER TABLE "WeeklyForecast" ADD CONSTRAINT "delivery_planning_range" CHECK (("nextDeliveryDate" IS NULL AND "followingDeliveryDate" IS NULL) OR ("nextDeliveryDate" IS NOT NULL AND "followingDeliveryDate" IS NOT NULL AND "nextDeliveryDate" >= "weekStart" AND "nextDeliveryDate" <= "weekStart" + 6 AND "followingDeliveryDate" > "nextDeliveryDate" AND "followingDeliveryDate" <= "weekStart" + 7));

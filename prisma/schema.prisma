@@ -1,0 +1,330 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CHEF
+  SUPER_USER
+}
+
+enum OrderStatus {
+  DRAFT
+  PLACED
+  RECEIVED
+  CANCELLED
+}
+
+enum StockStatus {
+  DRAFT
+  CONFIRMED
+}
+
+enum AdjustmentKind {
+  WASTE
+  TRANSFER_IN
+  TRANSFER_OUT
+  CORRECTION
+}
+
+model Restaurant {
+  id          String              @id @default("restaurant")
+  name        String
+  currency    String              @default("GBP")
+  timezone    String              @default("Europe/London")
+  createdAt   DateTime            @default(now())
+  targets     WeeklyTarget[]
+  defaults    TargetDefault[]
+  settings    RestaurantSettings?
+  users       User[]
+  weeks       WeeklyForecast[]
+  sales       DailySales[]
+  suppliers   Supplier[]
+  products    Product[]
+  orders      SupplierOrder[]
+  invoices    PurchaseInvoice[]
+  stockCounts StockCount[]
+  adjustments StockAdjustment[]
+  auditLogs   AuditLog[]
+}
+
+model RestaurantSettings {
+  restaurantId   String     @id
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  targetBps      Int        @default(2400)
+  warningBps     Int        @default(2200)
+  allocationDays Int        @default(1)
+  updatedAt      DateTime   @updatedAt
+}
+
+model User {
+  id           String     @id @default(cuid())
+  restaurantId String     @default("restaurant")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(CHEF)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  sessions     Session[]
+  auditLogs    AuditLog[]
+
+  @@index([restaurantId, active])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Persistent account-based throttling; keys are hashes of normalized email addresses.
+model LoginThrottle {
+  key         String   @id
+  attempts    Int      @default(0)
+  windowStart DateTime @default(now())
+}
+
+model WeeklyForecast {
+  version                    Int           @default(1)
+  id                         String        @id @default(cuid())
+  restaurantId               String        @default("restaurant")
+  restaurant                 Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  weekStart                  DateTime      @db.Date
+  targetBps                  Int
+  warningBps                 Int
+  // Explicit nullable assumptions: null means unknown, never zero or opening stock.
+  openingStockPence          BigInt?
+  expectedClosingStockPence  BigInt?
+  nextDeliveryDate           DateTime? @db.Date
+  followingDeliveryDate      DateTime? @db.Date
+  stockAvailabilityConfirmed Boolean       @default(false)
+  allocationDays             Int           @default(1)
+  purchasesConfirmedAt       DateTime?
+  finalizedAt                DateTime?
+  createdAt                  DateTime      @default(now())
+  updatedAt                  DateTime      @updatedAt
+  days                       ForecastDay[]
+
+  @@unique([restaurantId, weekStart])
+}
+
+model ForecastDay {
+  id                    String         @id @default(cuid())
+  weeklyForecastId      String
+  weeklyForecast        WeeklyForecast @relation(fields: [weeklyForecastId], references: [id], onDelete: Restrict)
+  date                  DateTime       @db.Date
+  originalForecastPence BigInt
+  forecastPence         BigInt
+
+  @@unique([weeklyForecastId, date])
+}
+
+model DailySales {
+  version      Int        @default(1)
+  id           String     @id @default(cuid())
+  restaurantId String     @default("restaurant")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  date         DateTime   @db.Date
+  amountPence  BigInt
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([restaurantId, date])
+}
+
+model Supplier {
+  id               String            @id @default(cuid())
+  restaurantId     String            @default("restaurant")
+  restaurant       Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  name             String
+  contact          String?
+  email            String?
+  phone            String?
+  deliverySchedule String?
+  active           Boolean           @default(true)
+  products         Product[]
+  orders           SupplierOrder[]
+  invoices         PurchaseInvoice[]
+
+  @@unique([restaurantId, name])
+}
+
+model Product {
+  id           String              @id @default(cuid())
+  restaurantId String              @default("restaurant")
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  name         String
+  category     String
+  countingUnit String
+  // Decimal unit costs support prices quoted below one penny per unit.
+  unitCost     Decimal             @db.Decimal(14, 4)
+  supplierId   String
+  supplier     Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  active       Boolean             @default(true)
+  orderItems   SupplierOrderItem[]
+  countItems   StockCountItem[]
+  adjustments  StockAdjustment[]
+
+  @@index([restaurantId, active])
+}
+
+model SupplierOrder {
+  id                   String              @id @default(cuid())
+  restaurantId         String              @default("restaurant")
+  restaurant           Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  supplierId           String
+  supplier             Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  orderDate            DateTime            @db.Date
+  expectedDeliveryDate DateTime            @db.Date
+  receivedDate         DateTime?           @db.Date
+  estimatedAmountPence BigInt
+  status               OrderStatus         @default(DRAFT)
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  items                SupplierOrderItem[]
+  // One current invoice per order; corrections update it with an audit entry.
+  invoice              PurchaseInvoice?
+
+  @@index([restaurantId, expectedDeliveryDate, status])
+}
+
+model SupplierOrderItem {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity       Decimal       @db.Decimal(14, 4)
+  unitCost       Decimal       @db.Decimal(14, 4)
+  lineTotalPence BigInt
+
+  @@unique([orderId, productId])
+}
+
+model PurchaseInvoice {
+  id             String            @id @default(cuid())
+  restaurantId   String            @default("restaurant")
+  restaurant     Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  supplierId     String
+  supplier       Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  orderId        String?           @unique
+  order          SupplierOrder?    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  reference      String
+  accountingDate DateTime          @db.Date
+  amountPence    BigInt
+  // Credits are separate negative invoices linked to the original invoice.
+  creditForId    String?
+  creditFor      PurchaseInvoice?  @relation("Credits", fields: [creditForId], references: [id], onDelete: Restrict)
+  credits        PurchaseInvoice[] @relation("Credits")
+  confirmedAt    DateTime?
+  voidedAt       DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([supplierId, reference])
+  @@index([restaurantId, accountingDate])
+}
+
+model StockCount {
+  id              String           @id @default(cuid())
+  restaurantId    String           @default("restaurant")
+  restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  date            DateTime         @db.Date
+  status          StockStatus      @default(DRAFT)
+  totalValuePence BigInt?
+  confirmedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  items           StockCountItem[]
+
+  @@unique([restaurantId, date])
+}
+
+model StockCountItem {
+  id           String     @id @default(cuid())
+  stockCountId String
+  stockCount   StockCount @relation(fields: [stockCountId], references: [id], onDelete: Restrict)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productName  String
+  countingUnit String
+  quantity     Decimal    @db.Decimal(14, 4)
+  unitCost     Decimal    @db.Decimal(14, 4)
+  valuePence   BigInt
+
+  @@unique([stockCountId, productId])
+}
+
+model StockAdjustment {
+  id             String         @id @default(cuid())
+  restaurantId   String         @default("restaurant")
+  restaurant     Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  productId      String?
+  product        Product?       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  accountingDate DateTime       @db.Date
+  kind           AdjustmentKind
+  valuePence     BigInt
+  reason         String
+  // Explanatory movements; accounting treatment must be decided before implementation.
+  createdAt      DateTime       @default(now())
+
+  @@index([restaurantId, accountingDate])
+}
+
+model AuditLog {
+  id           String     @id @default(cuid())
+  restaurantId String     @default("restaurant")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  actorId      String?
+  actor        User?      @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action       String
+  entity       String
+  entityId     String
+  before       Json?
+  after        Json?
+  reason       String?
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([entity, entityId])
+}
+
+// Independent from forecasts so targets can be scheduled before sales planning.
+model WeeklyTarget {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  weekStart DateTime @db.Date
+  originalBps Int
+  targetBps Int
+  source String
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([restaurantId, weekStart])
+}
+
+// Effective-dated defaults preserve inheritance even for weeks never opened in the UI.
+model TargetDefault {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  effectiveFrom DateTime @db.Date
+  targetBps Int
+  createdAt DateTime @default(now())
+  @@index([restaurantId, effectiveFrom, createdAt])
+}

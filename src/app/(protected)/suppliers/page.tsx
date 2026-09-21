@@ -1,0 +1,8 @@
+import { requireUser } from '@/lib/auth';
+import { db } from '@/lib/db';
+import { OperationForm } from '@/components/operation-form';
+export default async function Suppliers() {
+  const user = await requireUser(); const admin = user.role === 'SUPER_USER';
+  const suppliers = await db().supplier.findMany({ where: { restaurantId: user.restaurantId }, orderBy: { name: 'asc' } });
+  return <><p className="eyebrow">Kitchen partners</p><h1 className="page-title">Suppliers</h1>{admin && <details className="card mb-6"><summary className="font-semibold">Add supplier</summary><div className="mt-5"><OperationForm operation="supplier" button="Create supplier" fields={[{ name: 'name', label: 'Supplier name' },{ name: 'contact', label: 'Contact name', required: false },{ name: 'email', label: 'Email', required: false },{ name: 'phone', label: 'Phone', required: false },{ name: 'deliverySchedule', label: 'Delivery schedule', required: false }]}/></div></details>}<div className="grid gap-5 md:grid-cols-2">{suppliers.map(s => <article className="card" key={s.id}><span className="badge">{s.active ? 'Active' : 'Inactive'}</span><h2 className="mt-3 text-xl font-semibold">{s.name}</h2><p className="mt-3 text-sm">{s.contact || 'No contact name'}<br/>{s.email}<br/>{s.phone}</p><p className="my-4 text-sm text-stone-500">{s.deliverySchedule || 'Delivery schedule not set'}</p>{admin && <OperationForm operation="supplier-status" hidden={{ id: s.id, active: String(!s.active) }} button={s.active ? 'Deactivate supplier' : 'Reactivate supplier'}/>}</article>)}</div>{!suppliers.length && <div className="card">No suppliers yet. A Super User can add your first kitchen partner.</div>}</>;
+}
