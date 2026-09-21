@@ -8,6 +8,6 @@ export async function updateTarget(_previous: FormResult, form: FormData): Promi
   const user = await requireAdmin();
   try { await saveTarget(db(), user, Object.fromEntries(form), form.get('scope') === 'default'); }
   catch (e) { if (e instanceof TargetError) return { error: e.message, success: '' }; throw e; }
-  revalidatePath('/admin/food-cost'); revalidatePath('/dashboard'); revalidatePath('/reports');
+  revalidatePath('/admin/food-cost'); revalidatePath('/admin/planning'); revalidatePath('/dashboard'); revalidatePath('/reports');
   return { error: '', success: 'Food cost target saved.' };
 }

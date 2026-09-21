@@ -10,7 +10,7 @@ function failure(error: unknown): FormResult {
   if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code)) return { error: 'Another user saved this record. Reload to see the latest values before retrying.', success: '' };
   throw error;
 }
-function refresh() { revalidatePath('/dashboard'); revalidatePath('/sales'); revalidatePath('/admin/forecasts'); revalidatePath('/admin'); }
+function refresh() { revalidatePath('/dashboard'); revalidatePath('/sales'); revalidatePath('/admin/forecasts'); revalidatePath('/admin'); revalidatePath('/admin/planning'); revalidatePath('/reports'); }
 export async function saveForecast(_previous: FormResult, form: FormData): Promise<FormResult> {
   const actor = await requireAdmin();
   const parsed = forecastSchema.safeParse({ weekStart: form.get('weekStart'), version: form.get('version'), amounts: Array.from({ length: 7 }, (_, i) => form.get(`day${i}`)), reason: form.get('reason') ?? '' });

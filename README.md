@@ -2,9 +2,30 @@
 
 A Next.js / React / TypeScript application with Tailwind CSS, PostgreSQL, Prisma and secure email/password authentication. Currency: GBP. Business timezone: Europe/London.
 
-**Current implementation:** Secure Chef/Super User accounts; weekly forecasts and sales; default and weekly food-cost targets with scheduling and audit history; suppliers, orders, receipts, invoices and credits; products, Sunday stock counts and planning; exact food-cost calculations, finalized reports and CSV export; responsive forest-green/cream/gold dashboard with real-data charts and reduced-motion support. See [implementation status and business rules](docs/IMPLEMENTATION.md).
+**Current implementation:** Secure Chef/Super User accounts; weekly forecasts and sales; default and weekly food-cost targets with scheduling and audit history; suppliers, orders, receipts, invoices and credits; products, Sunday stock counts and planning; exact food-cost calculations, finalized reports and CSV export; responsive forest-green/cream/gold allowance dashboard and detailed four-tab real-data reports and reduced-motion support. See [implementation status and business rules](docs/IMPLEMENTATION.md).
 
-## Run locally
+## Run your existing Cocotte installation on your Mac
+
+Your accounts and database already exist. Do not copy over `.env`, reset the database, or run the seed again.
+
+```sh
+cd ~/Desktop/restaurant-cost-tracker
+brew services start postgresql@17
+npm run db:generate
+npm run db:migrate
+npm run dev -- --webpack --hostname 127.0.0.1
+```
+
+If an older development server is running, stop it with Control-C before starting it again. Open http://127.0.0.1:3000. Sign in with your existing Super User or Chef email address and private password. To open the private local account file without displaying it in Terminal:
+
+```sh
+open -a TextEdit .env.local-accounts
+```
+
+For the full role-by-role workflow, see [the Cocotte walkthrough](docs/COCOTTE-WORKFLOW.md).
+
+## First installation only
+
 
 Requirements: Node.js 22.18+ (Node 24 recommended), npm and a PostgreSQL 16+ database. PostgreSQL can run via a local installation, Docker, or a hosted service. PostgreSQL and Docker are not bundled.
 
@@ -12,10 +33,10 @@ Requirements: Node.js 22.18+ (Node 24 recommended), npm and a PostgreSQL 16+ dat
 
    ```sh
    npm ci
-   cp .env.example .env
+   touch .env
    ```
 
-2. Create an empty PostgreSQL database and a database user. Put its actual connection string in `DATABASE_URL` in `.env`. The template password is a placeholder. For hosted PostgreSQL, use the provider's TLS connection settings.
+2. Create an empty PostgreSQL database and a database user. Put its actual connection string in `DATABASE_URL` in `.env`. Create your private `.env` locally; environment files are not included in this repository. For hosted PostgreSQL, use the provider's TLS connection settings.
 
    Optional Docker setup, if Docker is installed:
 
@@ -66,7 +87,7 @@ npm run test:smoke
 
 This starts an isolated, temporary Prisma development database and web server, then tests administrator sign-in, account creation, forecast creation/revision, original-value preservation, Chef sales entry, projections, audit writing, mobile Chef sign-in, denied admin access, deactivation and logout. It never uses your configured `DATABASE_URL`. It uses installed Google Chrome on macOS; set `CHROME_PATH` for another Chrome location or install Playwright Chromium with `npx playwright install chromium`. Ports 3137 and 51383–51386 must be available. The temporary database is destroyed after the test.
 
-Current verification: 46 automated tests, the financial integration suite, the extended browser smoke test, lint, TypeScript checking and production build (`npm run build -- --webpack`) passed. The default Turbopack build encountered an environment local-port permission error; webpack is a verified alternative. The previous Stage 1 dependency audit reported zero vulnerabilities; it was not rerun in this continuation. An external production PostgreSQL deployment has not been provisioned or tested.
+Current verification: 49 automated tests, the financial integration suite, the extended browser smoke test, lint, TypeScript checking and production build (`npm run build -- --webpack`) passed. The default Turbopack build encountered an environment local-port permission error; webpack is a verified alternative. The previous Stage 1 dependency audit reported zero vulnerabilities; it was not rerun in this continuation. An external production PostgreSQL deployment has not been provisioned or tested.
 
 Production: `npm run build` then `npm start`, behind HTTPS. Production cookies are Secure, HttpOnly, SameSite=Lax and use the `__Host-` prefix. Plain HTTP production sign-in will not persist its cookie. Development uses an HTTP-compatible cookie on localhost.
 
@@ -94,7 +115,7 @@ After signing in as a Super User:
 1. Open Administration → Manage forecasts, select this week and enter all seven daily forecasts (for example, £100 each).
 2. Open Daily sales and record £50 for today. The dashboard projection should be £650, with the original forecast remaining £700.
 3. Revise today's forecast to £200 and supply a reason. The projection remains £650 because recorded actual sales replace that day's forecast. Original values remain unchanged.
-4. Sign in as a Chef: forecasts are read-only; missing current-week sales can be entered. Saved sales corrections and historical entry require a Super User and a reason.
+4. Sign in as a Chef: forecasts are read-only; missing sales can be entered, including historical days with a reason. Saved sales corrections require a Super User and a reason.
 5. Try a future sales date, a stale form in a second tab, and a prior week to verify the restrictions. Review Administration for audit entries.
 
 For this environment, use `npm run build -- --webpack` before `npm run test:smoke`. If development also encounters the Turbopack port restriction, use `npm run dev -- --webpack`.
@@ -111,12 +132,15 @@ Do not add React suppression props to conceal this warning. The login page was v
 
 ## Weekly targets, purchasing, stock and reports
 
-- **Food cost targets** in the Super User sidebar opens Food Cost Settings. Choose any accounting week and save its percentage. Accepts 0.01–100%, with up to two decimal places (for example, 22.5%). Chefs can view the target on the dashboard but cannot save changes.
+- **Weekly Planning → Default settings, scheduled targets & history** opens Food Cost Settings. Choose any accounting week and save its percentage. Accepts 0.01–100%, with up to two decimal places (for example, 22.5%). Chefs can view the target on the dashboard but cannot save changes.
 - **Default changes take effect next Monday** for weeks without a custom/preserved target. Current and historical weeks retain their existing effective default. Explicit weekly targets can be scheduled before forecasts exist. Historical changes require a reason, and finalized weeks must first be reopened in Reports. Target history retains previous/new percentages, actor, timestamp and reason; older changes are paginated. Existing forecast targets were preserved during migration and are labelled “Preserved”.
-- **Suppliers** allows Super Users to add or deactivate suppliers. **Orders & invoices** allows staff to draft, place, cancel and receive orders. Placing an order records a commitment in this application; it does not send an email or order to the supplier. Confirming receipt creates an invoice transactionally. Commitments follow expected delivery weeks; invoices follow their accounting dates. Super Users can correct invoices or add credit notes with reasons.
-- **Stock & planning** contains the product catalogue and Sunday count. Create each product with a counting unit and cost excluding VAT. Count every active product, including zero quantities, before confirming. Line values round half up to pence; previously counted prices stay unchanged when catalogue prices change. Waste is captured by the physical stock count, not deducted again.
-- **Planning** uses the previous confirmed Sunday count as opening stock unless explicitly overridden. Expected closing stock is a separate, nullable input. Confirm stock sufficiency and enter next/following delivery dates for ordering guidance. Guidance is limited to the selected week, with following delivery no later than next Monday; manage the following week's budget separately. Daily suggested budgets partition the remaining allowance by remaining forecast demand. Rounding remainders remain unallocated.
-- **Reports** shows an eight-week window ending at any selected week and offers CSV export. Finalization requires all seven sales, opening stock, confirmed Sunday count and explicit purchase completeness with no outstanding orders. Finalized figures are locked. Reopening requires a Super User and a reason; each finalization preserves a report snapshot, including the target used. Later corrections do not overwrite earlier snapshots.
+- **Supplier Management** allows Super Users to add, edit or deactivate suppliers. **Supplier Orders** allows staff to draft, place, cancel and receive orders. Placing an order records a commitment in this application; it does not send an email or order to the supplier. Confirming receipt creates an invoice transactionally. Commitments follow expected delivery weeks; invoices follow their accounting dates. Super Users can correct invoices or add credit notes with reasons.
+- **Optional detailed stock counts**, linked from Weekly Planning, preserves the product catalogue and Sunday count. You can instead enter one actual closing-stock total in Weekly Planning. Create each product with a counting unit and cost excluding VAT. Count every active product, including zero quantities, before confirming. Line values round half up to pence; previously counted prices stay unchanged when catalogue prices change. Waste is captured by the physical stock count, not deducted again.
+- **Weekly Planning** is restricted to Super Users. Set forecasts, the selected week's target, manual opening stock and expected closing stock. The manual opening value is never replaced automatically. Actual Sunday closing stock can be entered as one total; corrections/historical entries require a reason. Detailed count-based opening fallback remains available for existing records.
+- **Reports** has Sales, Purchasing & Food Cost, Suppliers and Weekly History tabs. Each chart has an exact-value table; exports match the selected tab and supplier filters. Supplier reporting supports a week, calendar month and individual supplier. History shows twelve weeks with navigation to older periods.
+- **Final reports** require the week to have ended in London, seven actual sales entries, opening and actual closing stock, no outstanding orders, and explicit confirmation that all purchases are recorded. Finalization locks records and saves a snapshot. Reopening requires a Super User reason; previous reported snapshots remain intact.
+- **Dashboard** prioritises Weekly Available to Spend and the compact seven-day sales table. Visible data refreshes every 30 seconds and when returning to the window, provided a form field is not focused. Missing planning inputs show a setup message. Projections use actual sales for recorded days plus the original forecast for unrecorded days; forecast revisions remain separately preserved.
+
 
 All amounts exclude VAT. Maximum allowed cost is projected sales × the week's target, rounded down to pence. Projected cost is opening stock + confirmed purchases + outstanding commitments − expected closing stock. Remaining allowance is maximum allowed cost − projected cost; negative values stay visible. Projected food cost percentage is projected cost ÷ projected sales; changing the target changes allowances and warning status, not the underlying ratio. Warnings begin two percentage points below the target, and equality is at/above target. Missing stock or sales evidence is shown as unavailable, not invented.
 

@@ -4,9 +4,31 @@ out/
 coverage/
 .env
 .env.*
-!.env.example
 src/generated/
 *.tsbuildinfo
 .DS_Store
 
 backups/
+
+# Local databases, exports and credentials
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.dump
+*.backup
+*.csv
+*.xlsx
+*.xls
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+pgdata/
+postgres-data/
+private/
+exports/
+test-results/
+playwright-report/

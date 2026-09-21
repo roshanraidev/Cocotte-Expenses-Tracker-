@@ -107,6 +107,7 @@ model WeeklyForecast {
   warningBps                 Int
   // Explicit nullable assumptions: null means unknown, never zero or opening stock.
   openingStockPence          BigInt?
+  actualClosingStockPence BigInt?
   expectedClosingStockPence  BigInt?
   nextDeliveryDate           DateTime? @db.Date
   followingDeliveryDate      DateTime? @db.Date

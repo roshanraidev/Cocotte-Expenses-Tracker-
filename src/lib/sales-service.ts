@@ -14,7 +14,7 @@ export async function saveWeeklyForecast(prisma: PrismaClient, actor: SalesActor
     // Shared week lock serializes financial entry and corrections for this week.
     await tx.$queryRaw`SELECT id FROM "WeeklyForecast" WHERE "restaurantId" = ${actor.restaurantId} AND "weekStart" = ${dateValue(input.weekStart)} FOR UPDATE`;
     const existing = await tx.weeklyForecast.findUnique({ where: { restaurantId_weekStart: { restaurantId: actor.restaurantId, weekStart: dateValue(input.weekStart) } }, include: { days: { orderBy: { date: 'asc' } } } });
-    if (existing?.finalizedAt) throw new SalesError('This week is finalized. Reopening finalized weeks is not available yet.');
+    if (existing?.finalizedAt) throw new SalesError('This week is finalized. A Super User must reopen it with an audited reason.');
     if (existing ? existing.version !== input.version : input.version !== 0) throw new SalesError('This forecast changed since you opened it. Reload before saving.');
     if (existing && input.reason.length < 3) throw new SalesError('A reason is required for forecast edits.');
     let id: string;
@@ -44,14 +44,13 @@ export async function saveWeeklyForecast(prisma: PrismaClient, actor: SalesActor
 export async function saveActualSales(prisma: PrismaClient, actor: SalesActor, input: DailySalesInput, today = londonToday()) {
   if (input.date > today) throw new SalesError('Actual sales cannot be entered for a future date.');
   const monday = mondayOf(input.date);
-  if (actor.role === 'CHEF' && monday !== mondayOf(today)) throw new SalesError('Chefs can enter missing sales only in the current week.');
   if (actor.role === 'CHEF' && input.version !== 0) throw new SalesError('Only Super Users can correct saved sales.');
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "restaurantId" FROM "RestaurantSettings" WHERE "restaurantId" = ${actor.restaurantId} FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM "WeeklyForecast" WHERE "restaurantId" = ${actor.restaurantId} AND "weekStart" = ${dateValue(monday)} FOR UPDATE`;
     const week = await tx.weeklyForecast.findUnique({ where: { restaurantId_weekStart: { restaurantId: actor.restaurantId, weekStart: dateValue(monday) } } });
     if (!week) throw new SalesError('A Super User must create the weekly forecast before sales can be entered.');
-    if (week.finalizedAt) throw new SalesError('This week is finalized. Reopening finalized weeks is not available yet.');
+    if (week.finalizedAt) throw new SalesError('This week is finalized. A Super User must reopen it with an audited reason.');
     const where = { restaurantId_date: { restaurantId: actor.restaurantId, date: dateValue(input.date) } };
     const existing = await tx.dailySales.findUnique({ where });
     if (existing && actor.role !== 'SUPER_USER') throw new SalesError('Sales are already recorded for this day. Ask a Super User to correct them.');

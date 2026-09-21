@@ -6,16 +6,17 @@ import { chromium, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { londonToday, mondayOf, weekDays, dayLabel, dateValue, addDays } from '../src/lib/dates';
+import { londonToday, mondayOf, weekDays, dayLabel, dateValue } from '../src/lib/dates';
 
 const adminEmail = 'admin@smoke.example';
 const chefEmail = 'chef@smoke.example';
 const password = randomBytes(24).toString('base64url');
 const server = await startPrismaDevServer({ name: `restaurant-smoke-${process.pid}`, persistenceMode: 'stateless', port: 51383, databasePort: 51384, shadowDatabasePort: 51385, streamsPort: 51386 });
 const url = server.database.connectionString;
-const env = { ...process.env, DATABASE_URL: url, SEED_ADMIN_EMAIL: adminEmail, SEED_ADMIN_PASSWORD: password, SEED_ADMIN_NAME: 'Smoke Admin', RESTAURANT_NAME: 'Smoke Test Kitchen' };
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+const env = { ...process.env, DATABASE_URL: url, DATABASE_POOL_SIZE: '1', SEED_ADMIN_EMAIL: adminEmail, SEED_ADMIN_PASSWORD: password, SEED_ADMIN_NAME: 'Smoke Admin', RESTAURANT_NAME: 'Smoke Test Kitchen' };
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url, max: 1 }) });
 let app: ChildProcess | undefined;
+let appLog = '';
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 async function command(bin: string, args: string[]) {
   await new Promise<void>((resolve, reject) => {
@@ -29,7 +30,7 @@ try {
   await command('node', ['--import', 'tsx', 'prisma/seed.ts']);
   console.log('PASS: committed migration and administrator seed through PostgreSQL wire protocol');
   app = spawn('node', ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3137'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let appLog = ''; app.stdout?.on('data', c => { appLog += c; }); app.stderr?.on('data', c => { appLog += c; });
+  app.stdout?.on('data', c => { appLog += c; }); app.stderr?.on('data', c => { appLog += c; });
   for (let n = 0; n < 100; n++) {
     try { if ((await fetch('http://localhost:3137/login')).ok) break; } catch { /* wait for startup */ }
     if (n === 99) throw new Error(`App did not start: ${appLog}`);
@@ -38,12 +39,15 @@ try {
   const chrome = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   browser = await chromium.launch({ headless: true, ...(existsSync(chrome) ? { executablePath: chrome } : {}) });
   const page = await browser.newPage();
+  const browserErrors:string[]=[];
+  page.on('pageerror',e=>browserErrors.push(e.message));
+  page.on('console',m=>{if(m.type()==='error')browserErrors.push(`${m.text()} at ${m.location().url}`);});
   await page.goto('http://localhost:3137/admin/users');
   await expect(page).toHaveURL(/\/login$/);
   await page.getByLabel('Email address').fill(adminEmail);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in to your kitchen' }).click();
-  await expect(page.getByRole('heading', { name: 'Kitchen overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await page.goto('http://localhost:3137/admin/users');
   await page.getByLabel('Full name').fill('Smoke Chef');
   await page.getByLabel('Email', { exact: true }).fill(chefEmail);
@@ -54,11 +58,13 @@ try {
   console.log('PASS: administrator login, account creation and transactional audit');
   const chefContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
   const chefPage = await chefContext.newPage();
+  chefPage.on('pageerror',e=>browserErrors.push(e.message));
+  chefPage.on('console',m=>{if(m.type()==='error')browserErrors.push(`${m.text()} at ${m.location().url}`);});
   await chefPage.goto('http://localhost:3137/login');
   await chefPage.getByLabel('Email address').fill(chefEmail);
   await chefPage.getByLabel('Password', { exact: true }).fill(password);
   await chefPage.getByRole('button', { name: 'Sign in to your kitchen' }).click();
-  await expect(chefPage.getByRole('heading', { name: 'Kitchen overview' })).toBeVisible();
+  await expect(chefPage.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await chefPage.goto('http://localhost:3137/admin/users');
   await expect(chefPage).toHaveURL(/\/dashboard$/);
   expect(await chefPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -68,11 +74,11 @@ try {
   for (const date of weekDays(monday)) await page.getByLabel(`${dayLabel(date)} (£)`, { exact: true }).fill('100.00');
   await page.getByRole('button', { name: 'Create weekly forecast' }).click();
   await expect(page.getByRole('status')).toHaveText('Weekly forecast saved.');
-  await chefPage.goto(`http://localhost:3137/sales?week=${monday}`);
+  await chefPage.goto(`http://localhost:3137/sales?date=${today}`);
   await chefPage.getByLabel(`Actual sales for ${dayLabel(today)} (£)`, { exact: true }).fill('50.00');
   const salesForm = chefPage.locator('form').filter({ has: chefPage.getByLabel(`Actual sales for ${dayLabel(today)} (£)`, { exact: true }) });
   await salesForm.getByRole('button', { name: 'Record actual sales' }).click();
-  await expect(chefPage.getByText('Actual: £50.00', { exact: false })).toBeVisible();
+  await expect(chefPage.getByText('Recorded: £50.00.', { exact: false })).toBeVisible();
   await page.getByLabel(`${dayLabel(today)} (£)`, { exact: true }).fill('200.00');
   await page.getByLabel('Reason for change').fill('Revised booking forecast');
   await page.getByRole('button', { name: 'Save forecast changes' }).click();
@@ -100,11 +106,14 @@ try {
   await expect(chefPage).toHaveURL(/\/dashboard$/);
   expect(await prisma.auditLog.count({ where: { action: 'WEEKLY_TARGET_CHANGED' } })).toBe(1);
   console.log('PASS: weekly target settings, Chef read-only access, audit and sales preservation');
+  await chefPage.goto('http://localhost:3137/orders');
   await page.goto('http://localhost:3137/suppliers');
   await page.getByText('Add supplier', { exact: true }).click();
   await page.getByLabel('Supplier name', { exact: true }).fill('Fresh Market');
   await page.getByRole('button', { name: 'Create supplier', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Fresh Market', exact: true })).toBeVisible();
+  await chefPage.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await expect(chefPage.locator('option').filter({hasText:'Fresh Market'}).first()).toBeAttached();
   await page.goto('http://localhost:3137/stock');
   await page.getByText('Add catalogue product', { exact: true }).click();
   const productForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create product', exact: true }) });
@@ -117,10 +126,10 @@ try {
   await expect(page.getByRole('heading', { name: 'Potatoes', exact: true })).toBeVisible();
   await chefPage.goto('http://localhost:3137/orders');
   await chefPage.getByText('Create supplier order', { exact: true }).click();
-  const orderForm = chefPage.locator('form').filter({ has: chefPage.getByRole('button', { name: 'Save draft order', exact: true }) });
+  const orderForm = chefPage.locator('form').filter({ has: chefPage.getByRole('button', { name: 'Save supplier order', exact: true }) });
   await orderForm.getByLabel('Supplier', { exact: true }).selectOption({ label: 'Fresh Market' });
   await orderForm.getByLabel('Estimated total (£ excluding VAT)', { exact: true }).fill('25.00');
-  await orderForm.getByRole('button', { name: 'Save draft order', exact: true }).click();
+  await orderForm.getByRole('button', { name: 'Save supplier order', exact: true }).click();
   await expect(chefPage.getByRole('button', { name: 'Place order', exact: true })).toBeVisible();
   await chefPage.getByRole('button', { name: 'Place order', exact: true }).click();
   await expect(chefPage.getByText('Receive delivery & confirm invoice', { exact: true })).toBeVisible();
@@ -130,20 +139,14 @@ try {
   await receiptForm.getByRole('button', { name: 'Receive and confirm invoice', exact: true }).click();
   await expect(chefPage.getByRole('heading', { name: 'Fresh Market · UI-INV-1', exact: true })).toBeVisible();
   expect(await prisma.purchaseInvoice.count()).toBe(1);
-  await page.goto('http://localhost:3137/stock');
-  await page.getByText('Weekly planning assumptions', { exact: true }).click();
-  const planningForm = page.locator('form').filter({ has: page.getByLabel('Opening stock override (£)', { exact: true }) });
-  await planningForm.getByLabel('Opening stock override (£)', { exact: true }).fill('100');
-  await planningForm.getByLabel('Expected closing stock (£)', { exact: true }).fill('50');
-  await planningForm.getByLabel('Next delivery date', { exact: true }).fill(today);
-  await planningForm.getByLabel('Following delivery date', { exact: true }).fill(addDays(today,1));
-  await planningForm.getByLabel('Stock is sufficient until the next delivery', { exact: true }).check();
-  await planningForm.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.goto(`http://localhost:3137/admin/planning?week=${monday}`);
+  const planningForm = page.locator('form').filter({ has: page.getByLabel('Opening stock (£)', { exact: true }) });
+  await planningForm.getByLabel('Opening stock (£)', { exact: true }).fill('100');
+  await planningForm.getByLabel('Expected Sunday closing stock (£)', { exact: true }).fill('50');
+  await planningForm.getByRole('button', { name: 'Save stock plan', exact: true }).click();
   await expect(planningForm.getByRole('status')).toHaveText('Saved successfully.');
   await page.goto(`http://localhost:3137/dashboard?week=${monday}`);
   await expect(page.getByText('£74.50', { exact: true }).first()).toBeVisible();
-  await expect(page.locator('.recharts-surface').first()).toBeVisible();
-  await expect.poll(async () => page.locator('.recharts-bar-rectangle').evaluateAll(nodes => nodes.some(node => (node as SVGGraphicsElement).getBBox().height > 30))).toBe(true);
   await page.screenshot({ path: '/tmp/cocotte-populated-dashboard.png', fullPage: true, caret: 'initial' });
   await chefPage.emulateMedia({ reducedMotion: 'reduce' });
   for (const route of ['/dashboard', '/sales', '/orders', '/stock', '/suppliers', '/reports']) {
@@ -152,7 +155,16 @@ try {
     expect(await chefPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
   await page.goto('http://localhost:3137/reports');
-  const csv = await page.request.get(`http://localhost:3137/reports/export?week=${monday}`);
+  await expect(page.locator('.recharts-surface').first()).toBeVisible();
+  for(const tab of ['sales','purchasing','suppliers','history']) {
+    await chefPage.goto(`http://localhost:3137/reports?week=${monday}&tab=${tab}`);
+    expect(await chefPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const exported=await chefPage.request.get(`http://localhost:3137/reports/export?week=${monday}&tab=${tab}`);expect(exported.status()).toBe(200);
+  }
+  await page.goto(`http://localhost:3137/reports?week=${monday}&tab=suppliers`);
+  await expect(page.locator('.recharts-surface')).toBeVisible();
+  await page.screenshot({path:'/tmp/cocotte-supplier-report.png',fullPage:true,caret:'initial'});
+  const csv = await page.request.get(`http://localhost:3137/reports/export?week=${monday}&tab=history`);
   expect(csv.status()).toBe(200); expect(await csv.text()).toContain('Target %');
   console.log('PASS: supplier/product creation, mobile Chef order/receipt, real invoice, reports/CSV and mobile overflow checks');
   await page.goto('http://localhost:3137/admin/users');
@@ -163,8 +175,10 @@ try {
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto('http://localhost:3137/dashboard'); await expect(page).toHaveURL(/\/login$/);
-  console.log('PASS: logout revokes administrator session');
-} finally {
+  if(browserErrors.length) console.log('Test server diagnostics:',appLog);
+  expect(browserErrors).toEqual([]);
+  console.log('PASS: logout revokes administrator session; no browser runtime/hydration errors');
+} catch (error) { console.log('Test server diagnostics:',appLog); throw error; } finally {
   await browser?.close();
   if (app && app.exitCode === null) { app.kill('SIGTERM'); await new Promise<void>(resolve => { app!.once('exit', () => resolve()); setTimeout(resolve, 5000); }); }
   await prisma.$disconnect(); await server.close();

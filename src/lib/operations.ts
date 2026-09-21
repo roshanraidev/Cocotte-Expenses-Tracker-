@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Prisma, PrismaClient } from '@/generated/prisma/client';
 import type { SalesActor } from './sales-service';
 import { addDays, dateValue, dateKey, londonToday, mondayOf, validDateKey } from './dates';
-import { parsePounds } from './money';
+import { formatGBP, parsePounds } from './money';
 import { decimal4, stockLinePence } from './finance';
 export class OperationError extends Error {}
 const text = z.string().trim().min(1).max(200);
@@ -33,6 +33,25 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       admin(actor); const v = z.object({ name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''), z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500) }).parse(raw);
       const row = await tx.supplier.create({ data: { ...v, restaurantId: actor.restaurantId } }); await audit('SUPPLIER_CREATED', 'Supplier', row.id, null, v); return;
     }
+    if (operation === 'supplier-edit') {
+      admin(actor);
+      const v = z.object({ id: text, previous: z.string().max(3000), name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''),z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500) }).parse(raw);
+      const row = await tx.supplier.findFirstOrThrow({ where: { id: v.id, restaurantId: actor.restaurantId } });
+      if (JSON.stringify([row.name,row.contact,row.email,row.phone,row.deliverySchedule]) !== v.previous) throw new OperationError('Supplier changed. Reload before saving.');
+      const updated = await tx.supplier.update({ where: { id: row.id }, data: { name: v.name, contact: v.contact, email: v.email, phone: v.phone, deliverySchedule: v.deliverySchedule } });
+      await audit('SUPPLIER_EDITED','Supplier',row.id,row,updated); return;
+    }
+    if (operation === 'closing-total') {
+      admin(actor);
+      const v = z.object({ weekStart: monday, stamp: text, amount: money, reason: z.string().trim().max(500).default('') }).parse(raw);
+      const week = await assertOpen(tx,actor.restaurantId,v.weekStart);
+      if (!week) throw new OperationError('Create the weekly forecast first.');
+      revision(week.updatedAt,v.stamp);
+      if (addDays(v.weekStart,6) > today) throw new OperationError('Enter actual closing stock on or after Sunday.');
+      if (week.actualClosingStockPence !== null || addDays(v.weekStart,6) < today) reason.parse(v.reason);
+      const updated = await tx.weeklyForecast.update({ where: { id: week.id }, data: { actualClosingStockPence: v.amount } });
+      await audit('CLOSING_STOCK_TOTAL_RECORDED','WeeklyForecast',week.id,week,updated,v.reason); return;
+    }
     if (operation === 'supplier-status') {
       admin(actor); const v = z.object({ id: text, active: z.enum(['true','false']) }).parse(raw);
       const row = await tx.supplier.findFirstOrThrow({ where: { id: v.id, restaurantId: actor.restaurantId } });
@@ -49,19 +68,33 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       if (decimal4(row.unitCost.toFixed(4)) !== decimal4(v.previous)) throw new OperationError('Price changed. Reload first.');
       await tx.product.update({ where: { id: row.id }, data: { unitCost: v.unitCost } }); await audit('PRODUCT_PRICE_CHANGED','Product',row.id,{ unitCost: row.unitCost },{ unitCost: v.unitCost },v.reason); return;
     }
+    const checkBudget = async (delivery: string, amount: bigint, acknowledged: unknown) => {
+      const available = (await financialWeek(actor.restaurantId,mondayOf(delivery),today,tx)).finance?.allowance;
+      if (available != null && amount > available && acknowledged !== 'on') throw new OperationError(`Budget warning: this order exceeds the available ${formatGBP(available)} by ${formatGBP(amount-available)}. Tick the acknowledgement to save the unchanged amount.`);
+    };
     if (operation === 'order') {
-      const v = z.object({ supplierId: text, expectedDeliveryDate: date, estimatedAmount: money, notes: z.string().max(500) }).parse(raw);
+      const v = z.object({ supplierId: text, orderDate: date.optional(), expectedDeliveryDate: date, estimatedAmount: money, status: z.enum(['DRAFT','PLACED','RECEIVED','CANCELLED']).default('DRAFT'), reference: z.string().default(''), invoiceAmount: z.string().default(''), acknowledge: z.string().optional(), notes: z.string().max(500) }).parse(raw);
+      if (v.orderDate && (v.orderDate > today || v.orderDate > v.expectedDeliveryDate)) throw new OperationError('Order date must not be in the future or after delivery.');
       if (v.expectedDeliveryDate < today) throw new OperationError('New orders must have a current or future delivery date.');
       await assertOpen(tx, actor.restaurantId, v.expectedDeliveryDate);
       await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true } });
-      const row = await tx.supplierOrder.create({ data: { restaurantId: actor.restaurantId, supplierId: v.supplierId, expectedDeliveryDate: dateValue(v.expectedDeliveryDate), orderDate: dateValue(today), estimatedAmountPence: v.estimatedAmount, notes: v.notes } });
-      await audit('ORDER_DRAFTED','SupplierOrder',row.id,null,row); return;
+      if (v.status === 'PLACED') { await checkBudget(v.expectedDeliveryDate,v.estimatedAmount,v.acknowledge); await invalidatePurchases(v.expectedDeliveryDate); }
+      const row = await tx.supplierOrder.create({ data: { restaurantId: actor.restaurantId, supplierId: v.supplierId, expectedDeliveryDate: dateValue(v.expectedDeliveryDate), orderDate: dateValue(v.orderDate ?? today), estimatedAmountPence: v.estimatedAmount, status: v.status, receivedDate: v.status === 'RECEIVED' ? dateValue(v.expectedDeliveryDate) : null, notes: v.notes } });
+      if (v.status === 'RECEIVED') {
+        if (v.expectedDeliveryDate > today) throw new OperationError('Cannot receive a future delivery.');
+        await invalidatePurchases(v.expectedDeliveryDate);
+        const invoice = await tx.purchaseInvoice.create({ data: { restaurantId: actor.restaurantId, supplierId: v.supplierId, orderId: row.id, reference: text.parse(v.reference), accountingDate: dateValue(v.expectedDeliveryDate), amountPence: money.parse(v.invoiceAmount), confirmedAt: new Date() } });
+        await tx.supplierOrder.update({ where: { id: row.id }, data: { receivedDate: dateValue(v.expectedDeliveryDate) } });
+        await audit('INVOICE_CONFIRMED','PurchaseInvoice',invoice.id,null,invoice);
+      }
+      await audit('ORDER_REGISTERED','SupplierOrder',row.id,null,row); return;
     }
     if (operation === 'order-status' || operation === 'receipt') {
-      const v = z.object({ id: text, stamp: text, status: z.enum(['PLACED','CANCELLED','RECEIVED']), reference: z.string().max(200).default(''), amount: z.string().default(''), accountingDate: z.string().default('') }).parse(raw);
+      const v = z.object({ id: text, stamp: text, status: z.enum(['PLACED','CANCELLED','RECEIVED']), reference: z.string().max(200).default(''), amount: z.string().default(''), accountingDate: z.string().default(''), acknowledge: z.string().optional() }).parse(raw);
       const row = await tx.supplierOrder.findFirstOrThrow({ where: { id: v.id, restaurantId: actor.restaurantId } }); revision(row.updatedAt,v.stamp);
       await assertOpen(tx,actor.restaurantId,dateKey(row.expectedDeliveryDate));
       if (v.status === 'PLACED' && row.status !== 'DRAFT' || v.status === 'CANCELLED' && !['DRAFT','PLACED'].includes(row.status) || v.status === 'RECEIVED' && row.status !== 'PLACED') throw new OperationError('This order cannot make that status transition.');
+      if (v.status === 'PLACED') await checkBudget(dateKey(row.expectedDeliveryDate),row.estimatedAmountPence,v.acknowledge);
       await invalidatePurchases(dateKey(row.expectedDeliveryDate));
       if (v.status === 'RECEIVED') {
         const accountingDate = date.parse(v.accountingDate); if (accountingDate > today) throw new OperationError('Cannot receive a future delivery.');
@@ -121,6 +154,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       await audit('STOCK_CONFIRMED','StockCount',count.id,{ status: count.status },{ totalValuePence: total, items: count.items }); return;
     }
     if (operation === 'planning') {
+      admin(actor);
       const v = z.object({ weekStart: monday, stamp: text, opening: optionalMoney, expectedClosing: optionalMoney, sufficient: z.string().optional(), nextDelivery: z.string(), followingDelivery: z.string() }).parse(raw);
       const week = await assertOpen(tx,actor.restaurantId,v.weekStart); if (!week) throw new OperationError('Create the weekly forecast first.'); revision(week.updatedAt,v.stamp);
       if (v.weekStart !== mondayOf(today)) admin(actor);
@@ -133,6 +167,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       if (!week) throw new OperationError('Create a forecast first.'); revision(week.updatedAt,v.stamp);
       if (addDays(v.weekStart,6) > today) throw new OperationError('Confirm completeness only on or after the week-ending Sunday.');
       if (await tx.supplierOrder.count({ where: { restaurantId: actor.restaurantId, status: 'PLACED', expectedDeliveryDate: { gte: dateValue(v.weekStart), lte: dateValue(addDays(v.weekStart,6)) } } })) throw new OperationError('Receive or cancel outstanding orders before confirming purchases.');
+      if (await tx.purchaseInvoice.count({ where: { restaurantId: actor.restaurantId, accountingDate: { gte: dateValue(v.weekStart), lte: dateValue(addDays(v.weekStart,6)) }, confirmedAt: null, voidedAt: null } })) throw new OperationError('Confirm all invoices before closing purchases.');
       await tx.weeklyForecast.update({ where: { id: week.id }, data: { purchasesConfirmedAt: new Date() } }); await audit('PURCHASES_CONFIRMED','WeeklyForecast',week.id,null,{ complete: true }); return;
     }
     if (operation === 'finalize') {
@@ -140,7 +175,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       const data = await financialWeek(actor.restaurantId,v.weekStart,today,tx);
       if (!data.week) throw new OperationError('Create a forecast first.'); revision(data.week.updatedAt,v.stamp);
       if (data.week.finalizedAt) throw new OperationError('Week is already finalized.');
-      if (addDays(v.weekStart,6) > today || data.finance?.actualCost === null || !data.finance) throw new OperationError('Finalization requires all seven sales, confirmed Sunday stock, opening stock and complete purchases with no outstanding orders.');
+      if (addDays(v.weekStart,6) >= today || data.finance?.actualCost === null || !data.finance) throw new OperationError('Finalization requires all seven sales, confirmed Sunday stock, opening stock and complete purchases with no outstanding orders.');
       if (!data.target.id) await tx.weeklyTarget.create({ data: { restaurantId: actor.restaurantId, weekStart: dateValue(v.weekStart), originalBps: data.target.targetBps, targetBps: data.target.targetBps, source: 'DEFAULT' } });
       await tx.weeklyForecast.update({ where: { id: data.week.id }, data: { finalizedAt: new Date(), openingStockPence: data.opening } });
       await audit('WEEK_FINALIZED','WeeklyForecast',data.week.id,null,{ weekStart: v.weekStart, targetBps: data.target.targetBps, originalTargetBps: data.target.originalBps, actualSalesPence: data.sales!.actualPence, purchasesPence: data.purchases, openingPence: data.opening, closingPence: data.closing, actualCostPence: data.finance.actualCost, actualBps: data.finance.actualBps }); return;

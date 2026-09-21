@@ -1,0 +1,10 @@
+'use client';
+import {ResponsiveContainer,LineChart,Line,BarChart,Bar,CartesianGrid,XAxis,YAxis,Tooltip,Legend} from 'recharts';
+import type {ChartRow} from './financial-charts';
+export function ReportChart({rows,kind}:{rows:ChartRow[];kind:'sales'|'cost'|'suppliers'}) {
+  const axis={fontSize:11,fill:'#697468'};
+  const tooltip=<Tooltip content={({active,payload,label})=>active&&payload?.length?<div className="chart-tooltip"><strong>{String(label??'')}</strong>{payload.map((p,i)=><p key={i}>{p.name}: {String(p.payload[`${String(p.dataKey)}Exact`]??'—')}</p>)}</div>:null}/>;
+  if(!rows.length)return <p className="py-10 text-center text-sm text-stone-500">No recorded data for this chart.</p>;
+  return <div className="chart-box" style={kind==='suppliers'?{height:Math.max(240,rows.length*40)}:undefined}><ResponsiveContainer width="100%" height="100%">{kind==='sales'?<LineChart data={rows}><CartesianGrid stroke="#eceee6" strokeDasharray="3 3"/><XAxis dataKey="label" tick={axis}/><YAxis tick={axis} width={65} unit="£"/>{tooltip}<Legend/><Line dataKey="forecast" name="Cumulative forecast" stroke="#b59c61" dot={false} isAnimationActive={false}/><Line dataKey="actual" name="Cumulative actual" stroke="#24563f" strokeWidth={2} connectNulls={false} isAnimationActive={false}/></LineChart>:<BarChart data={rows} layout={kind==='suppliers'?'vertical':'horizontal'}><CartesianGrid stroke="#eceee6" strokeDasharray="3 3"/><XAxis type={kind==='suppliers'?'number':'category'} dataKey={kind==='suppliers'?undefined:'label'} tick={axis} unit={kind==='suppliers'?'£':undefined}/><YAxis type={kind==='suppliers'?'category':'number'} dataKey={kind==='suppliers'?'label':undefined} tick={axis} width={kind==='suppliers'?110:50} unit={kind==='cost'?'%':undefined}/>{tooltip}<Bar dataKey="value" name={kind==='suppliers'?'Confirmed spending':'Food cost'} fill="#28543f" maxBarSize={40} isAnimationActive={false}/></BarChart>}</ResponsiveContainer></div>;
+}
+export function PrintReport(){return <button type="button" className="btn btn-secondary" onClick={()=>window.print()}>Print report</button>;}

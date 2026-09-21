@@ -7,6 +7,7 @@ beforeAll(async () => {
   await pg.exec(readFileSync('prisma/migrations/20260919000200_sales_versions/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260920000100_weekly_targets/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260920000200_delivery_planning/migration.sql', 'utf8'));
+  await pg.exec(readFileSync('prisma/migrations/20260921000100_actual_closing_total/migration.sql', 'utf8'));
   await pg.exec(`INSERT INTO "Restaurant" (id,name) VALUES ('restaurant','Test Kitchen');
     INSERT INTO "Supplier" (id,name,"restaurantId") VALUES ('supplier','Supplier','restaurant');
     INSERT INTO "Product" (id,"restaurantId",name,category,"countingUnit","unitCost","supplierId") VALUES ('chicken','restaurant','Chicken','Meat','kg',8.1234,'supplier');`);

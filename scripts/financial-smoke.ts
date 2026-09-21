@@ -10,11 +10,11 @@ import { saveTarget, resolveTarget } from '../src/lib/target-service';
 import { financialWeek } from '../src/lib/financial-data';
 import { dateValue, weekDays } from '../src/lib/dates';
 const server = await startPrismaDevServer({ name: `financial-${process.pid}`, persistenceMode: 'stateless', port: 51403, databasePort: 51404, shadowDatabasePort: 51405, streamsPort: 51406 });
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: server.database.connectionString }) });
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: server.database.connectionString, max: 1 }) });
 const monday='2026-09-14', today='2026-09-20';
 const admin = {id:'admin',restaurantId:'restaurant',role:'SUPER_USER' as const};
 const chef = {id:'chef',restaurantId:'restaurant',role:'CHEF' as const};
-const act = (op:string,input:Record<string,unknown>,actor=admin) => runOperation(prisma,actor,op,input,today);
+const act = (op:string,input:Record<string,unknown>,actor:typeof admin|typeof chef=admin) => runOperation(prisma,actor,op,input,today);
 const week = () => prisma.weeklyForecast.findUniqueOrThrow({where:{restaurantId_weekStart:{restaurantId:'restaurant',weekStart:dateValue(monday)}}});
 try {
  await new Promise<void>((resolve,reject)=>{ const p=spawn('node',['node_modules/prisma/build/index.js','migrate','deploy'],{env:{...process.env,DATABASE_URL:server.database.connectionString},stdio:'pipe'});let output='';p.stdout.on('data',v=>output+=v);p.stderr.on('data',v=>output+=v);p.on('error',reject);p.on('exit',code=>code===0?resolve():reject(new Error(output))); });
@@ -66,8 +66,16 @@ try {
  await saveTarget(prisma,admin,{weekStart:monday,percentage:'23',version:0,reason:''},false,today);
  data=await financialWeek('restaurant',monday,today,prisma);assert.equal(data.finance?.allowance,-400n);assert.equal(data.nextBudget,0n);
  assert.deepEqual(await prisma.dailySales.findMany(),salesBefore);assert.deepEqual(await prisma.stockCountItem.findMany(),stockBefore);assert.deepEqual(await prisma.purchaseInvoice.findMany(),purchasesBefore);
+ await assert.rejects(act('planning',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),opening:'0',expectedClosing:'0',nextDelivery:'',followingDelivery:''},chef),/Only Super Users/);
+ await assert.rejects(act('closing-total',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),amount:'20.31'},chef),/Only Super Users/);
+ await act('closing-total',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),amount:'20.31'});
+ assert.equal((await financialWeek('restaurant',monday,today,prisma)).closing,2031n);
+ const beforeEdit=await prisma.supplier.findUniqueOrThrow({where:{id:supplier.id}});
+ await act('supplier-edit',{id:supplier.id,previous:JSON.stringify([beforeEdit.name,beforeEdit.contact,beforeEdit.email,beforeEdit.phone,beforeEdit.deliverySchedule]),name:'Renamed Market',contact:'',email:'',phone:'',deliverySchedule:'Daily'});
+ assert.equal((await financialWeek('restaurant',monday,today,prisma)).purchases,14500n);
  await act('purchases-confirm',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()});
- await act('finalize',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()});
+ await assert.rejects(act('finalize',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()}));
+ await runOperation(prisma,admin,'finalize',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()},'2026-09-21');
  await assert.rejects(saveTarget(prisma,admin,{weekStart:monday,percentage:'22',version:1,reason:'Correction'},false,today),/Reopen/);
  invoice=await prisma.purchaseInvoice.findFirstOrThrow({where:{reference:'INV-1'}});
  await assert.rejects(act('invoice-correct',{id:invoice.id,stamp:invoice.updatedAt.toISOString(),amount:'130.00',accountingDate:today,reason:'Correction'}),/finalized/);
@@ -82,5 +90,15 @@ try {
  // Verify rollback from a fresh connection, independently of the failed transaction.
  await prisma.$disconnect();
  assert.equal(await prisma.supplier.count({where:{name:'Rollback me'}}),0);
+ await assert.rejects(act('order',{supplierId:supplier.id,expectedDeliveryDate:today,estimatedAmount:'10',notes:'Budget check',status:'PLACED'}),/Budget warning/);
+ await act('order',{supplierId:supplier.id,expectedDeliveryDate:today,estimatedAmount:'10',notes:'Budget check',status:'PLACED',acknowledge:'on'});
+ const over=await prisma.supplierOrder.findFirstOrThrow({where:{notes:'Budget check'}});
+ assert.equal(over.estimatedAmountPence,1000n);
+ await act('order-status',{id:over.id,stamp:over.updatedAt.toISOString(),status:'CANCELLED'});
+ const beforeReceived=(await financialWeek('restaurant',monday,today,prisma)).purchases;
+ await act('order',{supplierId:supplier.id,expectedDeliveryDate:today,estimatedAmount:'8',notes:'Already received',status:'RECEIVED',reference:'DIRECT-RECEIVED',invoiceAmount:'9'});
+ const afterReceived=await financialWeek('restaurant',monday,today,prisma);
+ assert.equal(afterReceived.purchases,beforeReceived+900n);assert.equal(afterReceived.commitments,0n);
+ console.log('PASS: over-budget warning/acknowledgement, unchanged order amount and direct received invoice without double-counting');
  console.log('PASS: invoice corrections/credits, stock rounding/snapshots/carry-forward, budgets, target-only recalculation, finalized locks/reopening, audit rollback and Chef permissions');
 } finally {await prisma.$disconnect();await server.close();}
