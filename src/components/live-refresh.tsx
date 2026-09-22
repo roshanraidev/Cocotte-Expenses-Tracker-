@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 export function LiveRefresh() {
   const router = useRouter();
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === 'visible' && !document.querySelector('input:focus,textarea:focus,select:focus')) router.refresh(); };
+    const refresh = () => { if (document.visibilityState === 'visible' && !document.querySelector('input:focus,textarea:focus,select:focus,form[data-dirty="true"]')) router.refresh(); };
     const timer = window.setInterval(refresh, 30000);
     window.addEventListener('focus', refresh);
     return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };

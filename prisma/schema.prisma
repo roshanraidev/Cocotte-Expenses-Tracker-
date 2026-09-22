@@ -50,6 +50,8 @@ model Restaurant {
   stockCounts StockCount[]
   adjustments StockAdjustment[]
   auditLogs   AuditLog[]
+  packagingInvoices PackagingInvoice[]
+  packagingProducts PackagingProduct[]
 }
 
 model RestaurantSettings {
@@ -156,6 +158,10 @@ model Supplier {
   phone            String?
   deliverySchedule String?
   active           Boolean           @default(true)
+  foodWorkspace    Boolean           @default(true)
+  packagingWorkspace Boolean         @default(false)
+  packagingInvoices PackagingInvoice[]
+  packagingAliases PackagingAlias[]
   products         Product[]
   orders           SupplierOrder[]
   invoices         PurchaseInvoice[]
@@ -225,6 +231,9 @@ model PurchaseInvoice {
   orderId        String?           @unique
   order          SupplierOrder?    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   reference      String
+  // Browser submission key is stored server-side to make retries idempotent.
+  submissionKey  String?           @unique
+  orderDate      DateTime?         @db.Date
   accountingDate DateTime          @db.Date
   amountPence    BigInt
   // Credits are separate negative invoices linked to the original invoice.
@@ -328,4 +337,110 @@ model TargetDefault {
   targetBps Int
   createdAt DateTime @default(now())
   @@index([restaurantId, effectiveFrom, createdAt])
+}
+
+
+enum PackagingCategory {
+  PACKAGING
+  CHEMICAL
+}
+
+enum PackagingInvoiceStatus {
+  REVIEW
+  CONFIRMED
+  VOIDED
+}
+
+model PackagingProduct {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields:[restaurantId], references:[id], onDelete:Restrict)
+  name String
+  nameKey String
+  category PackagingCategory
+  unit String @default("")
+  packSize String @default("")
+  verified Boolean @default(false)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  aliases PackagingAlias[]
+  lines PackagingLine[]
+  @@unique([restaurantId,nameKey,unit,packSize,category])
+}
+
+model PackagingAlias {
+  id String @id @default(cuid())
+  supplierId String
+  supplier Supplier @relation(fields:[supplierId],references:[id],onDelete:Restrict)
+  productId String
+  product PackagingProduct @relation(fields:[productId],references:[id],onDelete:Restrict)
+  description String
+  descriptionKey String
+  unit String @default("")
+  packSize String @default("")
+  createdAt DateTime @default(now())
+  @@unique([supplierId,descriptionKey,unit,packSize])
+}
+
+model PackagingInvoice {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+  supplierId String
+  supplier Supplier @relation(fields:[supplierId],references:[id],onDelete:Restrict)
+  submissionKey String @unique
+  orderDate DateTime @db.Date
+  deliveryDate DateTime @db.Date
+  invoiceDate DateTime? @db.Date
+  invoiceNumber String?
+  numberKey String?
+  status PackagingInvoiceStatus @default(REVIEW)
+  netPence BigInt?
+  vatPence BigInt?
+  grossPence BigInt?
+  extractedText String @default("")
+  extraction Json?
+  review Json?
+  scanNote String @default("")
+  reviewReason String?
+  version Int @default(1)
+  confirmedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  document PackagingDocument?
+  lines PackagingLine[]
+  @@unique([supplierId,numberKey])
+  @@index([restaurantId,deliveryDate,status])
+}
+
+// BYTEA is persistent server storage, included in PostgreSQL backups; never a public URL.
+model PackagingDocument {
+  id String @id @default(cuid())
+  invoiceId String @unique
+  invoice PackagingInvoice @relation(fields:[invoiceId],references:[id],onDelete:Restrict)
+  filename String
+  mime String
+  size Int
+  sha256 String
+  bytes Bytes
+  createdAt DateTime @default(now())
+  @@index([sha256])
+}
+
+model PackagingLine {
+  id String @id @default(cuid())
+  invoiceId String
+  invoice PackagingInvoice @relation(fields:[invoiceId],references:[id],onDelete:Restrict)
+  productId String
+  product PackagingProduct @relation(fields:[productId],references:[id],onDelete:Restrict)
+  originalDescription String
+  category PackagingCategory
+  unit String @default("")
+  packSize String @default("")
+  quantity Decimal? @db.Decimal(14,4)
+  unitPrice Decimal? @db.Decimal(14,4)
+  netPence BigInt
+  position Int
+  @@unique([invoiceId,position])
 }

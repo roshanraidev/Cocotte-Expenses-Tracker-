@@ -2,8 +2,10 @@
 import { startPrismaDevServer } from '@prisma/dev';
 import { PrismaClient } from '../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import {randomUUID} from 'node:crypto';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
+import {packagingChecks} from './packaging-checks';
 import { runOperation } from '../src/lib/operations';
 import { saveWeeklyForecast, saveActualSales } from '../src/lib/sales-service';
 import { saveTarget, resolveTarget } from '../src/lib/target-service';
@@ -58,7 +60,7 @@ try {
  await act('stock-confirm',{id:count.id,stamp:count.updatedAt.toISOString()});
  await act('product-price',{id:product.id,unitCost:'99.00',previous:'8.1234',reason:'New catalogue price'});
  assert.equal((await prisma.stockCountItem.findFirstOrThrow()).valuePence,2031n);
- assert.equal((await financialWeek('restaurant','2026-09-21',today,prisma)).opening,2031n);
+ assert.equal((await financialWeek('restaurant','2026-09-21',today,prisma)).opening,null); // Opening stock must be entered manually.
  await act('planning',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),opening:'50.00',expectedClosing:'30.00',nextDelivery:today,followingDelivery:'2026-09-21',sufficient:'on'});
  let data=await financialWeek('restaurant',monday,today,prisma);
  assert.equal(data.finance?.projectedCost,16500n);assert.equal(data.finance?.allowance,300n);assert.equal(data.nextBudget,300n);
@@ -71,7 +73,7 @@ try {
  await act('closing-total',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),amount:'20.31'});
  assert.equal((await financialWeek('restaurant',monday,today,prisma)).closing,2031n);
  const beforeEdit=await prisma.supplier.findUniqueOrThrow({where:{id:supplier.id}});
- await act('supplier-edit',{id:supplier.id,previous:JSON.stringify([beforeEdit.name,beforeEdit.contact,beforeEdit.email,beforeEdit.phone,beforeEdit.deliverySchedule]),name:'Renamed Market',contact:'',email:'',phone:'',deliverySchedule:'Daily'});
+ await act('supplier-edit',{id:supplier.id,previous:JSON.stringify([beforeEdit.name,beforeEdit.contact,beforeEdit.email,beforeEdit.phone,beforeEdit.deliverySchedule,beforeEdit.foodWorkspace,beforeEdit.packagingWorkspace]),name:'Renamed Market',contact:'',email:'',phone:'',deliverySchedule:'Daily'});
  assert.equal((await financialWeek('restaurant',monday,today,prisma)).purchases,14500n);
  await act('purchases-confirm',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()});
  await assert.rejects(act('finalize',{weekStart:monday,stamp:(await week()).updatedAt.toISOString()}));
@@ -100,5 +102,47 @@ try {
  const afterReceived=await financialWeek('restaurant',monday,today,prisma);
  assert.equal(afterReceived.purchases,beforeReceived+900n);assert.equal(afterReceived.commitments,0n);
  console.log('PASS: over-budget warning/acknowledgement, unchanged order amount and direct received invoice without double-counting');
+
+ const nextMonday='2026-09-21';
+ await saveWeeklyForecast(prisma,admin,{weekStart:nextMonday,version:0,amounts:Array(7).fill(10000n),reason:''});
+ const nextWeek=()=>prisma.weeklyForecast.findUniqueOrThrow({where:{restaurantId_weekStart:{restaurantId:'restaurant',weekStart:dateValue(nextMonday)}}});
+ await act('stock-plan',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString(),opening:'100',expectedClosing:'50',actualClosing:''});
+ const beforeNext=await financialWeek('restaurant',nextMonday,today,prisma);
+ const beforeCurrent=(await financialWeek('restaurant',monday,today,prisma)).purchases;
+ const purchase={supplierId:supplier.id,orderDate:today,deliveryDate:nextMonday,amount:'25.01',submissionKey:randomUUID()};
+ await Promise.all([act('purchase',purchase,chef),act('purchase',purchase,chef)]);
+ let simple=await prisma.purchaseInvoice.findUniqueOrThrow({where:{submissionKey:purchase.submissionKey}});
+ assert.equal(simple.amountPence,2501n);assert.ok(simple.confirmedAt);assert.equal(simple.orderId,null);
+ assert.equal(await prisma.purchaseInvoice.count({where:{submissionKey:purchase.submissionKey}}),1);
+ assert.equal((await financialWeek('restaurant',nextMonday,today,prisma)).finance?.allowance,beforeNext.finance!.allowance!-2501n);
+ assert.equal((await financialWeek('restaurant',monday,today,prisma)).purchases,beforeCurrent);
+ const correct={id:simple.id,stamp:simple.updatedAt.toISOString(),supplierId:supplier.id,orderDate:today,deliveryDate:nextMonday,amount:'30',reason:'Correct supplier net total'};
+ await assert.rejects(act('purchase-correct',correct,chef),/Only Super Users/);
+ await act('purchase-correct',correct);
+ await assert.rejects(act('purchase-correct',correct),/Reload/);
+ simple=await prisma.purchaseInvoice.findUniqueOrThrow({where:{id:simple.id}});
+ assert.equal((await financialWeek('restaurant',nextMonday,today,prisma)).finance?.allowance,beforeNext.finance!.allowance!-3000n);
+ await assert.rejects(act('purchase-void',{id:simple.id,stamp:simple.updatedAt.toISOString(),reason:'Duplicate entered'},chef),/Only Super Users/);
+ await act('purchase-void',{id:simple.id,stamp:simple.updatedAt.toISOString(),reason:'Duplicate entered'});
+ await act('purchase',purchase,chef); // Retrying a voided submission must not recreate it.
+ assert.ok((await prisma.purchaseInvoice.findUniqueOrThrow({where:{id:simple.id}})).voidedAt);
+ assert.equal((await financialWeek('restaurant',nextMonday,today,prisma)).finance?.allowance,beforeNext.finance!.allowance);
+ assert.equal(await prisma.auditLog.count({where:{entityId:simple.id}}),3);
+ await prisma.$disconnect();
+ assert.equal((await prisma.purchaseInvoice.findUniqueOrThrow({where:{id:simple.id}})).amountPence,3000n);
+ assert.equal((await nextWeek()).openingStockPence,10000n);
+ await assert.rejects(act('stock-plan',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString(),opening:'100',expectedClosing:'50',actualClosing:'50'}),/week-end|Sunday/);
+ await assert.rejects(act('stock-plan',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString(),opening:'100',expectedClosing:'50',actualClosing:''},chef),/Only Super Users/);
+ for(const date of weekDays(nextMonday)) await saveActualSales(prisma,admin,{date,version:0,amount:10000n,reason:'Completed week test'},'2026-09-28');
+ await runOperation(prisma,admin,'stock-plan',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString(),opening:'100',expectedClosing:'50',actualClosing:'50',reason:'Week-end valuation'},'2026-09-28');
+ const final=await financialWeek('restaurant',nextMonday,'2026-09-28',prisma);
+ assert.equal(final.finance?.actualCost,5000n);assert.equal(final.finance?.actualBps,714n);assert.equal(final.purchasesComplete,true);
+ assert.equal((await nextWeek()).purchasesConfirmedAt,null); // No separate confirmation step.
+ await runOperation(prisma,admin,'finalize',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString()},'2026-09-28');
+ await assert.rejects(runOperation(prisma,chef,'purchase',{...purchase,submissionKey:randomUUID()},'2026-09-28'),/finalized/);
+ assert.equal(await prisma.auditLog.count({where:{action:'WEEK_FINALIZED'}}),2);
+ console.log('PASS: combined stock plan, week-end validation, automatic purchase completeness, final food cost and historical lock');
+ console.log('PASS: simple net purchases, concurrent retry idempotency, Sunday-to-Monday allocation, corrections/voids, Chef restrictions, audit and persistence across connections');
  console.log('PASS: invoice corrections/credits, stock rounding/snapshots/carry-forward, budgets, target-only recalculation, finalized locks/reopening, audit rollback and Chef permissions');
+ await packagingChecks(prisma);
 } finally {await prisma.$disconnect();await server.close();}

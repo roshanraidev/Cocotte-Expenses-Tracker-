@@ -29,16 +29,71 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       const json = (v: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(v, (_, n) => typeof n === 'bigint' ? n.toString() : n));
       await tx.auditLog.create({ data: { restaurantId: actor.restaurantId, actorId: actor.id, action, entity, entityId, ...(before ? { before: json(before) } : {}), after: json(after), reason: explanation || null } });
     };
+    if (operation === 'purchase') {
+      const v = z.object({ supplierId: text, orderDate: date, deliveryDate: date, amount: money, submissionKey: z.uuid() }).parse(raw);
+      if (v.orderDate > today || v.deliveryDate < v.orderDate) throw new OperationError('Order date must be today or earlier, and delivery must be on or after the order date.');
+      const prior = await tx.purchaseInvoice.findUnique({ where: { submissionKey: v.submissionKey } });
+      if (prior) {
+        if (prior.restaurantId !== actor.restaurantId) throw new OperationError('Please reload this purchase form.');
+        return; // A retry never duplicates or restores a corrected/voided purchase.
+      }
+      await assertOpen(tx,actor.restaurantId,v.deliveryDate);
+      await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true, foodWorkspace:true } });
+      const row = await tx.purchaseInvoice.create({ data: {
+        restaurantId: actor.restaurantId, supplierId: v.supplierId, submissionKey: v.submissionKey,
+        reference: `PUR-${v.submissionKey}`, orderDate: dateValue(v.orderDate), accountingDate: dateValue(v.deliveryDate),
+        amountPence: v.amount, confirmedAt: new Date(),
+      } });
+      await invalidatePurchases(v.deliveryDate);
+      await audit('PURCHASE_RECORDED','PurchaseInvoice',row.id,null,row); return;
+    }
+    if (operation === 'purchase-correct' || operation === 'purchase-void') {
+      admin(actor);
+      const v = z.object({ id: text, stamp: text, reason }).parse(raw);
+      const row = await tx.purchaseInvoice.findFirstOrThrow({ where: { id: v.id, restaurantId: actor.restaurantId, confirmedAt: { not: null } } });
+      revision(row.updatedAt,v.stamp);
+      if (row.voidedAt) throw new OperationError('This purchase is already voided. Its historical record is preserved.');
+      await assertOpen(tx,actor.restaurantId,dateKey(row.accountingDate));
+      await invalidatePurchases(dateKey(row.accountingDate));
+      if (operation === 'purchase-void') {
+        // Preserve related credits; require resolving them explicitly rather than silently changing them.
+        if (await tx.purchaseInvoice.count({ where: { creditForId: row.id, voidedAt: null } })) throw new OperationError('Void the linked credit notes first so the historical balance remains correct.');
+        const updated = await tx.purchaseInvoice.update({ where: { id: row.id }, data: { voidedAt: new Date() } });
+        await audit('PURCHASE_VOIDED','PurchaseInvoice',row.id,row,updated,v.reason); return;
+      }
+      const value = z.object({ supplierId: text, orderDate: date, deliveryDate: date, amount: money }).parse(raw);
+      if (value.orderDate > today || value.deliveryDate < value.orderDate) throw new OperationError('Check the order and delivery dates.');
+      await assertOpen(tx,actor.restaurantId,value.deliveryDate);
+      await tx.supplier.findFirstOrThrow({ where: { id: value.supplierId, restaurantId: actor.restaurantId, ...(value.supplierId === row.supplierId ? {} : {active:true,foodWorkspace:true}) } });
+      if (value.supplierId !== row.supplierId && (row.creditForId || await tx.purchaseInvoice.count({where:{creditForId:row.id}}))) throw new OperationError('A purchase with linked credits must retain its supplier.');
+      await invalidatePurchases(value.deliveryDate);
+      const updated = await tx.purchaseInvoice.update({ where: { id: row.id }, data: { supplierId:value.supplierId,orderDate:dateValue(value.orderDate),accountingDate:dateValue(value.deliveryDate),amountPence:row.creditForId ? -value.amount : value.amount } });
+      await audit('PURCHASE_CORRECTED','PurchaseInvoice',row.id,row,updated,v.reason); return;
+    }
+    if (operation === 'stock-plan') {
+      admin(actor);
+      const v = z.object({weekStart:monday,stamp:text,opening:money,expectedClosing:money,actualClosing:optionalMoney,reason:z.string().trim().max(500).default('')}).parse(raw);
+      const week = await assertOpen(tx,actor.restaurantId,v.weekStart);
+      if (!week) throw new OperationError('Create the weekly forecast first.');
+      revision(week.updatedAt,v.stamp);
+      if (v.actualClosing !== null && addDays(v.weekStart,6) > today) throw new OperationError('Actual closing stock can be entered on or after Sunday.');
+      const changed = week.openingStockPence !== v.opening || week.expectedClosingStockPence !== v.expectedClosing || week.actualClosingStockPence !== v.actualClosing;
+      if (!changed) return;
+      if (addDays(v.weekStart,6) < today || week.actualClosingStockPence !== null && week.actualClosingStockPence !== v.actualClosing) reason.parse(v.reason);
+      const updated = await tx.weeklyForecast.update({where:{id:week.id},data:{openingStockPence:v.opening,expectedClosingStockPence:v.expectedClosing,actualClosingStockPence:v.actualClosing}});
+      await audit('STOCK_PLAN_UPDATED','WeeklyForecast',week.id,week,updated,v.reason); return;
+    }
     if (operation === 'supplier') {
-      admin(actor); const v = z.object({ name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''), z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500) }).parse(raw);
-      const row = await tx.supplier.create({ data: { ...v, restaurantId: actor.restaurantId } }); await audit('SUPPLIER_CREATED', 'Supplier', row.id, null, v); return;
+      admin(actor); const v = z.object({ name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''), z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500), workspace:z.enum(['FOOD','PACKAGING','BOTH']).default('FOOD') }).parse(raw);
+      const {workspace,...details}=v;
+      const row = await tx.supplier.create({ data: { ...details, foodWorkspace:workspace!=='PACKAGING',packagingWorkspace:workspace!=='FOOD',restaurantId: actor.restaurantId } }); await audit('SUPPLIER_CREATED', 'Supplier', row.id, null, v); return;
     }
     if (operation === 'supplier-edit') {
       admin(actor);
-      const v = z.object({ id: text, previous: z.string().max(3000), name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''),z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500) }).parse(raw);
+      const v = z.object({ id: text, previous: z.string().max(3000), name: text, contact: z.string().trim().max(500), email: z.union([z.literal(''),z.email()]), phone: z.string().max(100), deliverySchedule: z.string().max(500), workspace:z.enum(['FOOD','PACKAGING','BOTH']).default('FOOD') }).parse(raw);
       const row = await tx.supplier.findFirstOrThrow({ where: { id: v.id, restaurantId: actor.restaurantId } });
-      if (JSON.stringify([row.name,row.contact,row.email,row.phone,row.deliverySchedule]) !== v.previous) throw new OperationError('Supplier changed. Reload before saving.');
-      const updated = await tx.supplier.update({ where: { id: row.id }, data: { name: v.name, contact: v.contact, email: v.email, phone: v.phone, deliverySchedule: v.deliverySchedule } });
+      if (JSON.stringify([row.name,row.contact,row.email,row.phone,row.deliverySchedule,row.foodWorkspace,row.packagingWorkspace]) !== v.previous) throw new OperationError('Supplier changed. Reload before saving.');
+      const updated = await tx.supplier.update({ where: { id: row.id }, data: { name: v.name, contact: v.contact, email: v.email, phone: v.phone, deliverySchedule: v.deliverySchedule,foodWorkspace:v.workspace!=='PACKAGING',packagingWorkspace:v.workspace!=='FOOD' } });
       await audit('SUPPLIER_EDITED','Supplier',row.id,row,updated); return;
     }
     if (operation === 'closing-total') {
@@ -59,7 +114,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
     }
     if (operation === 'product') {
       admin(actor); const v = z.object({ name: text, category: text, countingUnit: text, unitCost: decimal, supplierId: text }).parse(raw);
-      await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true } });
+      await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true, foodWorkspace:true } });
       const row = await tx.product.create({ data: { ...v, restaurantId: actor.restaurantId } }); await audit('PRODUCT_CREATED', 'Product', row.id, null, v); return;
     }
     if (operation === 'product-price') {
@@ -68,6 +123,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       if (decimal4(row.unitCost.toFixed(4)) !== decimal4(v.previous)) throw new OperationError('Price changed. Reload first.');
       await tx.product.update({ where: { id: row.id }, data: { unitCost: v.unitCost } }); await audit('PRODUCT_PRICE_CHANGED','Product',row.id,{ unitCost: row.unitCost },{ unitCost: v.unitCost },v.reason); return;
     }
+    if (['order','order-status','receipt','invoice','credit','invoice-correct','purchases-confirm'].includes(operation)) admin(actor);
     const checkBudget = async (delivery: string, amount: bigint, acknowledged: unknown) => {
       const available = (await financialWeek(actor.restaurantId,mondayOf(delivery),today,tx)).finance?.allowance;
       if (available != null && amount > available && acknowledged !== 'on') throw new OperationError(`Budget warning: this order exceeds the available ${formatGBP(available)} by ${formatGBP(amount-available)}. Tick the acknowledgement to save the unchanged amount.`);
@@ -77,7 +133,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       if (v.orderDate && (v.orderDate > today || v.orderDate > v.expectedDeliveryDate)) throw new OperationError('Order date must not be in the future or after delivery.');
       if (v.expectedDeliveryDate < today) throw new OperationError('New orders must have a current or future delivery date.');
       await assertOpen(tx, actor.restaurantId, v.expectedDeliveryDate);
-      await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true } });
+      await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true, foodWorkspace:true } });
       if (v.status === 'PLACED') { await checkBudget(v.expectedDeliveryDate,v.estimatedAmount,v.acknowledge); await invalidatePurchases(v.expectedDeliveryDate); }
       const row = await tx.supplierOrder.create({ data: { restaurantId: actor.restaurantId, supplierId: v.supplierId, expectedDeliveryDate: dateValue(v.expectedDeliveryDate), orderDate: dateValue(v.orderDate ?? today), estimatedAmountPence: v.estimatedAmount, status: v.status, receivedDate: v.status === 'RECEIVED' ? dateValue(v.expectedDeliveryDate) : null, notes: v.notes } });
       if (v.status === 'RECEIVED') {

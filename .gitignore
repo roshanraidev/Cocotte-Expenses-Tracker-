@@ -32,3 +32,9 @@ private/
 exports/
 test-results/
 playwright-report/
+
+# Original business documents must never be versioned
+/uploads/
+/invoices/
+*.traineddata
+*.traineddata.gz

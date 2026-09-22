@@ -11,13 +11,16 @@ describe('exact food cost engine', () => {
   });
   it('recalculates allowances by target without changing projected food cost', () => {
     const a = calculateFinance(input); const b = calculateFinance({ ...input,targetBps:2300 });
-    expect(a.projectedCost).toBe(270000n); expect(a.allowance).toBe(162000n);
+    expect(a.projectedCost).toBe(220000n); expect(a.allowance).toBe(212000n);
     expect(a.allowance! - b.allowance!).toBe(18000n); expect(a.projectedBps).toBe(b.projectedBps);
+  });
+  it('does not deduct legacy estimated commitments from the confirmed-purchase allowance', () => {
+    expect(calculateFinance(input).allowance).toBe(calculateFinance({...input,commitments:0n}).allowance);
   });
   it('preserves unknown stock and negative allowances', () => {
     expect(calculateFinance({...input,opening:null}).allowance).toBeNull();
     expect(calculateFinance({...input,expectedClosing:null}).projectedBps).toBeNull();
-    expect(calculateFinance({...input,purchases:500000n}).allowance).toBe(-138000n);
+    expect(calculateFinance({...input,purchases:500000n}).allowance).toBe(-88000n);
   });
   it('keeps target equality and near-threshold fractions accurate', () => {
     expect(calculateFinance({...input,opening:0n,expectedClosing:0n,purchases:432000n,commitments:0n}).warning).toBe('AT_OR_ABOVE_TARGET');

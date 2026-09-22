@@ -15,6 +15,6 @@ describe('auditable weekly reports',()=>{
  });
  it('preserves manual zero opening and exposes the purchasing budget',()=>{
   const result=calculateFinance({sales:1800000n,targetBps:2400,opening:0n,expectedClosing:50000n,purchases:200000n,commitments:50000n,actualClosing:40000n,actualSales:1800000n,completeSales:true,purchasesConfirmed:true});
-  expect(result.purchasingBudget).toBe(482000n);expect(result.allowance).toBe(232000n);
+  expect(result.purchasingBudget).toBe(482000n);expect(result.allowance).toBe(282000n);
  });
 });

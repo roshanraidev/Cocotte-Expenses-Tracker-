@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createCanvas} from '@napi-rs/canvas';
+import type {PrismaClient} from '../src/generated/prisma/client';
+import {registerInvoice,saveReview,catalogueOperation} from '../src/lib/packaging/service';
+import {extractDocument} from '../src/lib/packaging/extract';
+import {financialWeek} from '../src/lib/financial-data';
+export async function packagingChecks(prisma:PrismaClient){
+ const chef={id:'chef',restaurantId:'restaurant',role:'CHEF' as const},admin={...chef,id:'admin',role:'SUPER_USER' as const};
+ const foodBefore=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);
+ const supplier=await prisma.supplier.create({data:{restaurantId:'restaurant',name:'Packaging test supplier',foodWorkspace:false,packagingWorkspace:true}});
+ const canvas=createCanvas(1300,360),ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,1300,360);ctx.fillStyle='black';ctx.font='30px Arial';['Invoice No: SCAN-1','Net total: 16.00','VAT: 3.20','Gross total: 19.20'].forEach((s,i)=>ctx.fillText(s,30,50+i*65));const bytes=canvas.toBuffer('image/png');
+ const scanned=await extractDocument(bytes,'image/png');assert.equal(scanned.extraction.net,'16.00');assert.equal(scanned.extraction.vat,'3.20');assert.equal(scanned.extraction.gross,'19.20');
+ // A real single-page text PDF exercises PDF.js separately from image OCR.
+ const stream='BT /F1 18 Tf 30 720 Td (Invoice No: PDF-1) Tj 0 -30 Td (Net total: 16.00) Tj 0 -30 Td (VAT: 3.20) Tj 0 -30 Td (Gross total: 19.20) Tj ET';
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];let pdf='%PDF-1.4\n';const offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${o}\nendobj\n`;});const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+ const parsed=await extractDocument(Buffer.from(pdf),'application/pdf');assert.equal(parsed.extraction.net,'16.00');assert.equal(parsed.extraction.invoiceNumber,'PDF-1');
+ const raw={supplierId:supplier.id,orderDate:'2026-09-20',deliveryDate:'2026-09-21',submissionKey:randomUUID()};
+ const [registered,retry]=await Promise.all([registerInvoice(prisma,chef,raw,{bytes,filename:'invoice.png',mime:'image/png'},'2026-09-22'),registerInvoice(prisma,chef,raw,undefined,'2026-09-22')]);assert.equal(registered.id,retry.id);assert.equal(registered.status,'REVIEW');
+ const review={invoiceNumber:'INV-P1',invoiceDate:'2026-09-20',net:'16',vat:'3.20',gross:'19.20',netConfirmed:true,reconciled:false,duplicateReviewed:false,reason:'',lines:[{description:'W/UP LIQ 5LTR',productId:'',category:'CHEMICAL',unit:'bottle',packSize:'5l',quantity:'2',unitPrice:'8',lineNet:'16'}]};
+ await assert.rejects(saveReview(prisma,chef,registered.id,1,{...review,netConfirmed:false},true),/EXCLUDE|exclude/);
+ await assert.rejects(saveReview(prisma,chef,registered.id,1,{...review,net:'17'},true),/add up/);
+ await saveReview(prisma,chef,registered.id,1,review,false);
+ assert.equal(await prisma.packagingLine.count(),0);assert.equal((await prisma.packagingInvoice.findUniqueOrThrow({where:{id:registered.id}})).status,'REVIEW');
+ await assert.rejects(saveReview(prisma,chef,registered.id,1,review,true),/another device/);
+ await saveReview(prisma,chef,registered.id,2,review,true);await saveReview(prisma,chef,registered.id,2,review,true);
+ assert.equal(await prisma.packagingLine.count(),1);assert.equal((await prisma.packagingInvoice.findUniqueOrThrow({where:{id:registered.id}})).netPence,1600n);
+ const duplicate=await registerInvoice(prisma,chef,{...raw,submissionKey:randomUUID()},undefined,'2026-09-22');
+ await assert.rejects(saveReview(prisma,chef,duplicate.id,1,review,true),/number already/);
+ await assert.rejects(saveReview(prisma,chef,duplicate.id,1,{...review,invoiceNumber:''},true),/Possible duplicate/);
+ await assert.rejects(catalogueOperation(prisma,chef,'product',{name:'Forbidden',category:'CHEMICAL',unit:'',packSize:''}),/Only Super Users/);
+ await catalogueOperation(prisma,admin,'product',{name:'Washing liquid 5L',category:'CHEMICAL',unit:'bottle',packSize:'5l'});
+ const product=await prisma.packagingProduct.findFirstOrThrow({where:{name:'Washing liquid 5L'}});
+ await assert.rejects(catalogueOperation(prisma,admin,'alias',{supplierId:supplier.id,productId:product.id,description:'W/UP LIQ 5LTR',unit:'bottle',packSize:'1l'}),/pack size/);
+ await catalogueOperation(prisma,admin,'alias',{supplierId:supplier.id,productId:product.id,description:'W/UP LIQ 5LTR',unit:'bottle',packSize:'5l'});
+ assert.equal((await prisma.packagingLine.findFirstOrThrow()).productId,product.id);assert.equal((await prisma.packagingLine.findFirstOrThrow()).originalDescription,'W/UP LIQ 5LTR');
+ await saveReview(prisma,chef,duplicate.id,1,{...review,invoiceNumber:'INV-P2',duplicateReviewed:true,reason:'Separate delivery verified against original'},true);
+ assert.equal(await prisma.packagingLine.count({where:{productId:product.id}}),2); // exact alias also matches future manual reviews
+ const different=await registerInvoice(prisma,chef,{...raw,submissionKey:randomUUID()},undefined,'2026-09-22');
+ await assert.rejects(saveReview(prisma,chef,different.id,1,{...review,invoiceNumber:'INV-P3',duplicateReviewed:true,reason:'Separate invoice',lines:[{...review.lines[0],productId:product.id,packSize:'1l'}]},true),/unlike packs/);
+ await assert.rejects(saveReview(prisma,{...chef,restaurantId:'other'},different.id,1,review,true));
+ await assert.rejects(catalogueOperation(prisma,chef,'void',{id:registered.id,reason:'No permission'}),/Only Super Users/);
+ await catalogueOperation(prisma,admin,'void',{id:registered.id,reason:'Supplier duplicated invoice'});
+ assert.equal(await prisma.packagingLine.count(),2);assert.ok(await prisma.auditLog.findFirst({where:{entityId:registered.id,action:'PACKAGING_INVOICE_VOIDED'}}));
+ await prisma.supplier.update({where:{id:supplier.id},data:{active:false,name:'Renamed packaging supplier'}});
+ await assert.rejects(registerInvoice(prisma,chef,{...raw,submissionKey:randomUUID()},undefined,'2026-09-22'));
+ await prisma.$disconnect();assert.equal((await prisma.packagingDocument.findUniqueOrThrow({where:{invoiceId:registered.id}})).bytes.length,bytes.length);
+ const foodAfter=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);assert.deepEqual(foodAfter.finance,foodBefore.finance);assert.equal(foodAfter.purchases,foodBefore.purchases);
+ console.log('PASS: real image OCR and PDF extraction, net/VAT review, draft exclusion, duplicate/retry protection, exact product aliases, unlike-pack rejection, permissions, audit, file persistence and unchanged food finances');
+}

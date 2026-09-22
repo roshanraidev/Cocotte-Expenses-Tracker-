@@ -68,3 +68,46 @@ summary { min-height:32px; font-size:14px; }
 
 .card > .section-title:first-child { margin-top: 0; }
 @media print { body > div.min-h-dvh { display: block !important; } }
+
+/* Compact layouts retain comfortable 44px touch targets and the prominent allowance. */
+body { font-size: 14px; }
+.card { padding: 18px; border-radius: 14px; }
+.page-title { font-size: clamp(25px, 2.5vw, 31px); margin-bottom: 18px; }
+.section-title { margin: 20px 0 12px; font-size: 17px; }
+.workspace { padding: 24px 28px 40px; }
+.app-header { min-height: 70px; padding: 12px 28px; }
+.btn { min-height: 44px; padding: 10px 14px; font-size: 12px; }
+input, select { min-height: 44px; padding: 10px 12px; }
+.data-table td, .data-table th { padding: 10px 9px; }
+.compact-sales td, .compact-sales th { padding: 8px 6px; }
+.allowance-hero { padding: clamp(18px, 2.5vw, 30px); }
+.report-tabs a { min-height: 44px; display: flex; align-items: center; }
+.purchase-review { scroll-margin-top: 12px; }
+@media (min-width: 768px) { input, select { font-size: 14px; } }
+@media (min-width: 1280px) {
+  .stock-plan .operation-form { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+  .stock-plan .operation-form > * { margin: 0; }
+  .stock-plan .operation-form > div:last-of-type, .stock-plan .operation-form > p { grid-column: 1 / -1; }
+  .stock-plan .operation-form > button { justify-self: start; }
+}
+@media (max-width: 767px) {
+  .workspace { padding: 18px 14px 32px; }
+  .card { padding: 15px; }
+  .app-header { padding: 10px 15px; min-height: 62px; }
+  input, select { font-size: 16px; }
+  .data-table { font-size: 12px; }
+  .data-table td, .data-table th { padding: 9px 7px; }
+  .compact-sales td, .compact-sales th { padding: 8px 4px; }
+  .chart-box { height: 230px; }
+}
+@media print { .workspace { padding: 0; } }
+.workspace-select { background:#244d3b; color:#fff; border-color:#bca46a66; font-size:12px; padding:10px 8px; }
+.workspace-select option { background:#244d3b; color:white; }
+.review-line { border:1px solid var(--line); padding:12px; border-radius:10px; background:#fcfcf8; }
+.review-line input:invalid { border-color:#bda76b; }
+.review-table input { min-width:105px; }
+.review-table td:first-child input { min-width:200px; }
+.review-table select { min-width:160px; max-width:260px; }
+.review-table .review-missing { border-color:#b8a16a; background:#fffaf0; }
+.review-confirmation { display:flex; align-items:flex-start; gap:12px; font-size:13px; font-weight:400; line-height:1.6; }
+.review-confirmation input { flex-shrink:0; margin-top:2px; }

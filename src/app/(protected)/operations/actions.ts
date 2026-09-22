@@ -15,6 +15,6 @@ export async function saveOperation(_previous: FormResult, form: FormData): Prom
     if (e instanceof Prisma.PrismaClientKnownRequestError && ['P2002','P2025'].includes(e.code)) return { error: 'Record already exists or is no longer available. Reload and check your input.', success: '' };
     throw e;
   }
-  for (const path of ['/suppliers','/orders','/stock','/dashboard','/reports','/admin/planning']) revalidatePath(path);
+  for (const path of ['/packaging/suppliers','/packaging/invoices','/suppliers','/orders','/stock','/dashboard','/reports','/admin/planning','/admin/legacy-orders']) revalidatePath(path);
   return { error: '', success: 'Saved successfully.' };
 }

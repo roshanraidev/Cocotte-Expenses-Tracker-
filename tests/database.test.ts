@@ -8,12 +8,18 @@ beforeAll(async () => {
   await pg.exec(readFileSync('prisma/migrations/20260920000100_weekly_targets/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260920000200_delivery_planning/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260921000100_actual_closing_total/migration.sql', 'utf8'));
+  await pg.exec(readFileSync('prisma/migrations/20260922000100_simple_purchases/migration.sql', 'utf8'));
+  await pg.exec(readFileSync('prisma/migrations/20260922000200_packaging_workspace/migration.sql', 'utf8'));
   await pg.exec(`INSERT INTO "Restaurant" (id,name) VALUES ('restaurant','Test Kitchen');
     INSERT INTO "Supplier" (id,name,"restaurantId") VALUES ('supplier','Supplier','restaurant');
     INSERT INTO "Product" (id,"restaurantId",name,category,"countingUnit","unitCost","supplierId") VALUES ('chicken','restaurant','Chicken','Meat','kg',8.1234,'supplier');`);
 }, 30000);
 afterAll(async () => { await pg.close(); });
 describe('PostgreSQL migration and financial storage invariants', () => {
+  it('enforces submission keys independently of browser state', async () => {
+    await pg.exec(`INSERT INTO "PurchaseInvoice" (id,"restaurantId","supplierId",reference,"accountingDate","orderDate","amountPence","submissionKey","confirmedAt","updatedAt") VALUES ('simple-one','restaurant','supplier','one','2026-09-21','2026-09-20',2501,'retry-key',now(),now())`);
+    await expect(pg.exec(`INSERT INTO "PurchaseInvoice" (id,"restaurantId","supplierId",reference,"accountingDate","amountPence","submissionKey","updatedAt") VALUES ('simple-two','restaurant','supplier','two','2026-09-21',2501,'retry-key',now())`)).rejects.toThrow(/unique/);
+  });
   it('allows only one actual-sales record per restaurant and date', async () => {
     await pg.exec(`INSERT INTO "DailySales" (id,"restaurantId",date,"amountPence","updatedAt") VALUES ('sale','restaurant','2026-09-14',140000,now())`);
     await expect(pg.exec(`INSERT INTO "DailySales" (id,"restaurantId",date,"amountPence","updatedAt") VALUES ('duplicate','restaurant','2026-09-14',150000,now())`)).rejects.toThrow(/unique/);
