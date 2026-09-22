@@ -10,12 +10,20 @@ beforeAll(async () => {
   await pg.exec(readFileSync('prisma/migrations/20260921000100_actual_closing_total/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260922000100_simple_purchases/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20260922000200_packaging_workspace/migration.sql', 'utf8'));
+  await pg.exec(readFileSync('prisma/migrations/20260923000100_file_first_invoices/migration.sql', 'utf8'));
   await pg.exec(`INSERT INTO "Restaurant" (id,name) VALUES ('restaurant','Test Kitchen');
     INSERT INTO "Supplier" (id,name,"restaurantId") VALUES ('supplier','Supplier','restaurant');
     INSERT INTO "Product" (id,"restaurantId",name,category,"countingUnit","unitCost","supplierId") VALUES ('chicken','restaurant','Chicken','Meat','kg',8.1234,'supplier');`);
 }, 30000);
 afterAll(async () => { await pg.close(); });
 describe('PostgreSQL migration and financial storage invariants', () => {
+  it('persists unassigned invoice drafts but forbids confirming them without a supplier', async () => {
+    await pg.exec(`INSERT INTO "PackagingInvoice" (id,"restaurantId","submissionKey","orderDate","deliveryDate","updatedAt") VALUES ('unassigned','restaurant','draft-key','2026-09-21','2026-09-21',now())`);
+    const result=await pg.query<{supplierId:string|null}>(`SELECT "supplierId" FROM "PackagingInvoice" WHERE id='unassigned'`);
+    expect(result.rows[0].supplierId).toBeNull();
+    await expect(pg.exec(`UPDATE "PackagingInvoice" SET status='CONFIRMED',"netPence"=100,"confirmedAt"=now() WHERE id='unassigned'`)).rejects.toThrow(/packaging_confirmed_supplier/);
+  });
+
   it('enforces submission keys independently of browser state', async () => {
     await pg.exec(`INSERT INTO "PurchaseInvoice" (id,"restaurantId","supplierId",reference,"accountingDate","orderDate","amountPence","submissionKey","confirmedAt","updatedAt") VALUES ('simple-one','restaurant','supplier','one','2026-09-21','2026-09-20',2501,'retry-key',now(),now())`);
     await expect(pg.exec(`INSERT INTO "PurchaseInvoice" (id,"restaurantId","supplierId",reference,"accountingDate","amountPence","submissionKey","updatedAt") VALUES ('simple-two','restaurant','supplier','two','2026-09-21',2501,'retry-key',now())`)).rejects.toThrow(/unique/);

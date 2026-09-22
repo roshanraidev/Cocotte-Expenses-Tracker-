@@ -387,8 +387,8 @@ model PackagingInvoice {
   id String @id @default(cuid())
   restaurantId String
   restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
-  supplierId String
-  supplier Supplier @relation(fields:[supplierId],references:[id],onDelete:Restrict)
+  supplierId String?
+  supplier Supplier? @relation(fields:[supplierId],references:[id],onDelete:Restrict)
   submissionKey String @unique
   orderDate DateTime @db.Date
   deliveryDate DateTime @db.Date

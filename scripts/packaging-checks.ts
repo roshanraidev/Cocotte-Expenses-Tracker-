@@ -8,13 +8,16 @@ import {financialWeek} from '../src/lib/financial-data';
 export async function packagingChecks(prisma:PrismaClient){
  const chef={id:'chef',restaurantId:'restaurant',role:'CHEF' as const},admin={...chef,id:'admin',role:'SUPER_USER' as const};
  const foodBefore=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);
- const supplier=await prisma.supplier.create({data:{restaurantId:'restaurant',name:'Packaging test supplier',foodWorkspace:false,packagingWorkspace:true}});
+
  const canvas=createCanvas(1300,360),ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,1300,360);ctx.fillStyle='black';ctx.font='30px Arial';['Invoice No: SCAN-1','Net total: 16.00','VAT: 3.20','Gross total: 19.20'].forEach((s,i)=>ctx.fillText(s,30,50+i*65));const bytes=canvas.toBuffer('image/png');
  const scanned=await extractDocument(bytes,'image/png');assert.equal(scanned.extraction.net,'16.00');assert.equal(scanned.extraction.vat,'3.20');assert.equal(scanned.extraction.gross,'19.20');
  // A real single-page text PDF exercises PDF.js separately from image OCR.
  const stream='BT /F1 18 Tf 30 720 Td (Invoice No: PDF-1) Tj 0 -30 Td (Net total: 16.00) Tj 0 -30 Td (VAT: 3.20) Tj 0 -30 Td (Gross total: 19.20) Tj ET';
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];let pdf='%PDF-1.4\n';const offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${o}\nendobj\n`;});const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
  const parsed=await extractDocument(Buffer.from(pdf),'application/pdf');assert.equal(parsed.extraction.net,'16.00');assert.equal(parsed.extraction.invoiceNumber,'PDF-1');
+ const unassigned=await registerInvoice(prisma,chef,{submissionKey:randomUUID()},{bytes:Buffer.from(pdf),filename:'unknown.pdf',mime:'application/pdf'},'2026-09-22');
+ assert.equal(unassigned.supplierId,null);assert.equal(await prisma.supplier.count({where:{packagingWorkspace:true}}),0);
+ const supplier=await prisma.supplier.create({data:{restaurantId:'restaurant',name:'Packaging test supplier',foodWorkspace:false,packagingWorkspace:true}});
  const raw={supplierId:supplier.id,orderDate:'2026-09-20',deliveryDate:'2026-09-21',submissionKey:randomUUID()};
  const [registered,retry]=await Promise.all([registerInvoice(prisma,chef,raw,{bytes,filename:'invoice.png',mime:'image/png'},'2026-09-22'),registerInvoice(prisma,chef,raw,undefined,'2026-09-22')]);assert.equal(registered.id,retry.id);assert.equal(registered.status,'REVIEW');
  const review={invoiceNumber:'INV-P1',invoiceDate:'2026-09-20',net:'16',vat:'3.20',gross:'19.20',netConfirmed:true,reconciled:false,duplicateReviewed:false,reason:'',lines:[{description:'W/UP LIQ 5LTR',productId:'',category:'CHEMICAL',unit:'bottle',packSize:'5l',quantity:'2',unitPrice:'8',lineNet:'16'}]};
@@ -46,5 +49,25 @@ export async function packagingChecks(prisma:PrismaClient){
  await assert.rejects(registerInvoice(prisma,chef,{...raw,submissionKey:randomUUID()},undefined,'2026-09-22'));
  await prisma.$disconnect();assert.equal((await prisma.packagingDocument.findUniqueOrThrow({where:{invoiceId:registered.id}})).bytes.length,bytes.length);
  const foodAfter=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);assert.deepEqual(foodAfter.finance,foodBefore.finance);assert.equal(foodAfter.purchases,foodBefore.purchases);
+ const empty={invoiceNumber:'UNKNOWN-1',invoiceDate:'',net:'10',vat:'',gross:'',netConfirmed:true,reconciled:false,lines:[{description:'Cups',productId:'',category:'PACKAGING',unit:'case',packSize:'100',quantity:'1',unitPrice:'10',lineNet:'10'}]};
+ await saveReview(prisma,chef,unassigned.id,1,empty,false);
+ await assert.rejects(saveReview(prisma,chef,unassigned.id,2,empty,true),/Assign an active/);
+ await assert.rejects(saveReview(prisma,chef,unassigned.id,2,{...empty,supplierMode:'create',newSupplierName:'Forbidden supplier'},false),/Only Super Users/);
+ const food=await prisma.supplier.create({data:{restaurantId:'restaurant',name:'Both workspace supplier'}});
+ await assert.rejects(saveReview(prisma,chef,unassigned.id,2,{...empty,supplierId:food.id,supplierMode:'enable'},false),/Only Super Users/);
+ await saveReview(prisma,admin,unassigned.id,2,{...empty,supplierId:food.id,supplierMode:'enable',orderDate:'2026-09-20',deliveryDate:'2026-09-21'},false);
+ const enabled=await prisma.supplier.findUniqueOrThrow({where:{id:food.id}});assert.ok(enabled.foodWorkspace&&enabled.packagingWorkspace);
+ await saveReview(prisma,chef,unassigned.id,3,{...empty,net:'12',lines:[{...empty.lines[0],unitPrice:'12',lineNet:'12'}]},true);
+ assert.equal((await prisma.packagingInvoice.findUniqueOrThrow({where:{id:unassigned.id}})).netPence,1200n);
+ const newDraft=await registerInvoice(prisma,chef,{submissionKey:randomUUID()},undefined,'2026-09-22');
+ const beforeSuppliers=await prisma.supplier.count();
+ await assert.rejects(saveReview(prisma,admin,newDraft.id,1,{...empty,supplierMode:'create',newSupplierName:'Both workspace supplier'},true),/already exists/);
+ await saveReview(prisma,admin,newDraft.id,1,{...empty,supplierMode:'create',newSupplierName:'Inline new supplier'},true);
+ assert.equal(await prisma.supplier.count(),beforeSuppliers+1);
+ const created=await prisma.supplier.findFirstOrThrow({where:{name:'Inline new supplier'}});assert.ok(created.packagingWorkspace&&!created.foodWorkspace);
+ const more=await registerInvoice(prisma,chef,{submissionKey:randomUUID()},undefined,'2026-09-22');
+ await assert.rejects(saveReview(prisma,admin,more.id,1,{...empty,supplierId:created.id,orderDate:'2026-09-22',deliveryDate:'2026-09-21'},false),/Check order/);
+ const stillFood=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);assert.deepEqual(stillFood.finance,foodBefore.finance);
+ console.log('PASS: supplier-free PDF persistence, Chef unknown draft, server permission guards, inline creation / Both assignment, corrected net prices and unchanged food budget');
  console.log('PASS: real image OCR and PDF extraction, net/VAT review, draft exclusion, duplicate/retry protection, exact product aliases, unlike-pack rejection, permissions, audit, file persistence and unchanged food finances');
 }
