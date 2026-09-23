@@ -8,7 +8,7 @@ export const decimalLabel=(n:bigint,places=4)=>{const scale=10n**BigInt(places);
 const amount=z.string().regex(/^\d{1,12}(\.\d{1,2})?$/,'Enter GBP with up to two decimals.');
 const decimal=z.string().regex(/^\d{1,10}(\.\d{1,4})?$/,'Use up to four decimal places.');
 const optionalDecimal=z.union([z.literal(''),decimal]);
-export const reviewLineSchema=z.object({description:z.string().trim().min(1).max(500),productId:z.string().max(100).default(''),category:z.enum(['PACKAGING','CHEMICAL']),unit:z.string().trim().max(60),packSize:z.string().trim().max(60),quantity:optionalDecimal,unitPrice:optionalDecimal,lineNet:amount}).refine(v=>!v.quantity||decimal4(v.quantity)>0n,{message:'Quantity must be positive or blank.',path:['quantity']});
+export const reviewLineSchema=z.object({description:z.string().trim().min(1).max(500),productId:z.string().max(100).default(''),category:z.enum(['PACKAGING','CHEMICAL','UNCLASSIFIED']),unit:z.string().trim().max(60),packSize:z.string().trim().max(60),quantity:optionalDecimal,unitPrice:optionalDecimal,lineNet:amount}).refine(v=>!v.quantity||decimal4(v.quantity)>0n,{message:'Quantity must be positive or blank.',path:['quantity']});
 export const reviewSchema=z.object({invoiceNumber:z.string().trim().max(100),invoiceDate:z.string().refine(v=>v===''||validDateKey(v),'Check invoice date.'),net:amount,vat:z.union([z.literal(''),amount]),gross:z.union([z.literal(''),amount]),lines:z.array(reviewLineSchema).min(1).max(150),reason:z.string().trim().max(500).default(''),netConfirmed:z.boolean(),reconciled:z.boolean(),duplicateReviewed:z.boolean().default(false)});
 export type ReviewLine=z.infer<typeof reviewLineSchema>;
 export type Review=z.infer<typeof reviewSchema>;

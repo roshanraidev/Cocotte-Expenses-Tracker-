@@ -1,8 +1,8 @@
 'use client';
 import {ResponsiveContainer,BarChart,Bar,LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip} from 'recharts';
 export type PackagingChartRow={label:string;value:number|null;exact:string};
-export function PackagingChart({rows,label,kind='bar',currency=true}:{rows:PackagingChartRow[];label:string;kind?:'bar'|'line';currency?:boolean}){
- if(!rows.length)return <p className="py-6 text-sm text-stone-500">No confirmed purchases in this selection.</p>;
+export function PackagingChart({rows,label,kind='bar',currency=true,emptyLabel='No confirmed purchases in this selection.'}:{rows:PackagingChartRow[];label:string;kind?:'bar'|'line';currency?:boolean;emptyLabel?:string}){
+ if(!rows.length)return <p className="py-6 text-sm text-stone-500">{emptyLabel}</p>;
  const axis={fontSize:11,fill:'#697468'};const tooltip=<Tooltip content={({active,payload})=>active&&payload?.length?<div className="chart-tooltip"><strong>{String(payload[0].payload.label)}</strong><p>{label}: {String(payload[0].payload.exact)}</p></div>:null}/>;
  return <div className="chart-box" role="img" aria-label={`${label}. Exact values are in the accompanying table.`} style={kind==='bar'?{height:Math.max(230,rows.length*34)}:undefined}><ResponsiveContainer width="100%" height="100%">{kind==='bar'?<BarChart data={rows} layout="vertical"><CartesianGrid stroke="#eceee6"/><XAxis type="number" tick={axis} unit={currency?'£':undefined}/><YAxis type="category" dataKey="label" width={120} tick={axis}/>{tooltip}<Bar dataKey="value" name={label} fill="#28543f" maxBarSize={24} isAnimationActive={false}/></BarChart>:<LineChart data={rows}><CartesianGrid stroke="#eceee6"/><XAxis dataKey="label" tick={axis}/><YAxis tick={axis} width={65} unit={currency?'£':undefined}/>{tooltip}<Line dataKey="value" name={label} stroke="#28543f" strokeWidth={2} connectNulls={false} isAnimationActive={false}/></LineChart>}</ResponsiveContainer></div>;
 }

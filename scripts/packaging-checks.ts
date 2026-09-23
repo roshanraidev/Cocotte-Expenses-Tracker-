@@ -68,6 +68,14 @@ export async function packagingChecks(prisma:PrismaClient){
  const more=await registerInvoice(prisma,chef,{submissionKey:randomUUID()},undefined,'2026-09-22');
  await assert.rejects(saveReview(prisma,admin,more.id,1,{...empty,supplierId:created.id,orderDate:'2026-09-22',deliveryDate:'2026-09-21'},false),/Check order/);
  const stillFood=await financialWeek('restaurant','2026-09-21','2026-09-28',prisma);assert.deepEqual(stillFood.finance,foodBefore.finance);
+ const simpleDraft=await registerInvoice(prisma,chef,{submissionKey:randomUUID()},undefined,'2026-09-22');
+ assert.equal(simpleDraft.orderDate,null);assert.equal(simpleDraft.deliveryDate,null);
+ const simple={simpleReview:true,supplierId:created.id,orderDate:'',deliveryDate:'',orderNumber:'PO-CHECK',net:'12.50',netConfirmed:true,reconciled:false,lines:[{sourceIndex:-1,description:'Unmatched bag',quantity:'2',lineNet:'12.50',category:'CHEMICAL',unit:'invented'}]};
+ await saveReview(prisma,chef,simpleDraft.id,1,simple,true);
+ const simpleSaved=await prisma.packagingInvoice.findUniqueOrThrow({where:{id:simpleDraft.id},include:{lines:true}});
+ assert.equal(simpleSaved.orderDate,null);assert.equal(simpleSaved.deliveryDate,null);assert.equal(simpleSaved.orderNumber,'PO-CHECK');assert.equal(simpleSaved.lines[0].category,'UNCLASSIFIED');assert.equal(simpleSaved.lines[0].unit,'');assert.equal(simpleSaved.lines[0].unitPrice?.toString(),'6.25');assert.equal(simpleSaved.lines[0].priceBasis,'NET_PER_QUANTITY');
+ assert.equal((await financialWeek('restaurant','2026-09-21','2026-09-28',prisma)).purchases,foodBefore.purchases);
+ console.log('PASS: simple review without invented dates/categories, server-controlled technical metadata, exact effective prices, order reference and food separation');
  console.log('PASS: supplier-free PDF persistence, Chef unknown draft, server permission guards, inline creation / Both assignment, corrected net prices and unchanged food budget');
  console.log('PASS: real image OCR and PDF extraction, net/VAT review, draft exclusion, duplicate/retry protection, exact product aliases, unlike-pack rejection, permissions, audit, file persistence and unchanged food finances');
 }

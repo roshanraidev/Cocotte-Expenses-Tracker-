@@ -341,6 +341,7 @@ model TargetDefault {
 
 
 enum PackagingCategory {
+  UNCLASSIFIED
   PACKAGING
   CHEMICAL
 }
@@ -390,9 +391,10 @@ model PackagingInvoice {
   supplierId String?
   supplier Supplier? @relation(fields:[supplierId],references:[id],onDelete:Restrict)
   submissionKey String @unique
-  orderDate DateTime @db.Date
-  deliveryDate DateTime @db.Date
+  orderDate DateTime? @db.Date
+  deliveryDate DateTime? @db.Date
   invoiceDate DateTime? @db.Date
+  orderNumber String?
   invoiceNumber String?
   numberKey String?
   status PackagingInvoiceStatus @default(REVIEW)
@@ -439,6 +441,7 @@ model PackagingLine {
   unit String @default("")
   packSize String @default("")
   quantity Decimal? @db.Decimal(14,4)
+  priceBasis String @default("INVOICE")
   unitPrice Decimal? @db.Decimal(14,4)
   netPence BigInt
   position Int

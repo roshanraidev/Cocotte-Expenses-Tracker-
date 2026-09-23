@@ -1,5 +1,6 @@
 import {expect,type Page,type Browser} from '@playwright/test';
 import {fileFirstBrowser} from './file-first-browser';
+import {londonToday} from '../src/lib/dates';
 import {createCanvas} from '@napi-rs/canvas';
 import type {PrismaClient} from '../src/generated/prisma/client';
 export async function packagingBrowser(page:Page,chefPage:Page,browser:Browser,prisma:PrismaClient){
@@ -18,15 +19,13 @@ export async function packagingBrowser(page:Page,chefPage:Page,browser:Browser,p
  await expect(chefPage).toHaveURL(/\/packaging\/invoices\/[^/]+$/,{timeout:120000});
  await expect(chefPage.getByLabel('Invoice supplier',{exact:true})).toHaveValue((await prisma.supplier.findFirstOrThrow({where:{name:'Clean & Pack'}})).id);
  await expect(chefPage.getByLabel('Invoice net total (£)',{exact:true})).toHaveValue('16.00');
- await expect(chefPage.getByLabel('VAT amount (£), if known',{exact:true})).toHaveValue('3.20');
+ await expect(chefPage.getByLabel('VAT amount (£), if known',{exact:true})).toHaveCount(0);
  await expect(chefPage.getByLabel('Description 1',{exact:true})).toHaveValue('Washing Liquid');
- await chefPage.getByLabel('Category 1',{exact:true}).selectOption('CHEMICAL');await chefPage.getByLabel('packSize 1',{exact:true}).fill('5l');
+ await expect(chefPage.locator('.simple-invoice-table th')).toHaveCount(3);await chefPage.getByText('Optional details · dates, order number and notes',{exact:true}).click();await chefPage.getByLabel('Received / delivery date',{exact:true}).fill(londonToday());
  await chefPage.screenshot({path:'/tmp/cocotte-packaging-review-phone.png',fullPage:true,caret:'initial'});
  const invoiceId=chefPage.url().split('/').at(-1)!;
  expect(await prisma.packagingLine.count()).toBe(linesBefore);
- await chefPage.getByRole('button',{name:'Confirm Invoice',exact:true}).click();await expect(chefPage.locator('form').getByRole('alert')).toContainText('exclude VAT');
- await chefPage.getByText('I checked the original and confirm all line amounts and the invoice net total EXCLUDE VAT.',{exact:true}).click();
- await chefPage.getByRole('button',{name:'Confirm Invoice',exact:true}).click();
+ await chefPage.getByRole('button',{name:'SAVE INVOICE',exact:true}).click();
  await expect(chefPage.getByRole('heading',{name:'Confirmed net spending · £16.00',exact:true})).toBeVisible();
  await chefPage.reload();await expect(chefPage.getByRole('heading',{name:'Confirmed net spending · £16.00',exact:true})).toBeVisible();
  expect(await prisma.packagingInvoice.count({where:{status:'CONFIRMED'}})).toBe(confirmedBefore+1);expect(await prisma.packagingLine.count()).toBe(linesBefore+1);
