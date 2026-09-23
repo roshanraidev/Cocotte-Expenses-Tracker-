@@ -146,6 +146,10 @@ try {
   await expect(planningForm.getByRole('status')).toHaveText('Saved successfully.');
   await page.goto(`http://localhost:3137/dashboard?week=${monday}`);
   await expect(page.getByText('£74.50', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('link',{name:'How was this calculated?'})).toHaveAttribute('href',`/reports?week=${monday}&tab=purchasing`);
+  await expect(page.locator('.dashboard-cumulative').getByRole('application')).toBeVisible();
+  await page.locator('.chart-data summary').click();
+  await expect(page.locator('.chart-data tbody tr')).toHaveCount(7);
   await page.screenshot({ path: '/tmp/cocotte-populated-dashboard.png', fullPage: true, caret: 'initial' });
   await chefPage.emulateMedia({ reducedMotion: 'reduce' });
   for (const route of ['/dashboard', '/sales', '/orders', '/stock', '/suppliers', '/reports']) {
