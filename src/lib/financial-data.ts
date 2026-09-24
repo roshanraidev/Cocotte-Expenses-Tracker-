@@ -25,7 +25,7 @@ async function readFinancialWeek(restaurantId: string, monday: string, today: st
   const opening = week?.openingStockPence ?? null;
   const closing = week?.actualClosingStockPence ?? (closingCount?.status === 'CONFIRMED' ? closingCount.totalValuePence : null);
   const unconfirmed = await tx.purchaseInvoice.count({where:{restaurantId,accountingDate:range,confirmedAt:null,voidedAt:null}});
-  const purchasesComplete = unconfirmed === 0 && orders.length === 0 && week?.purchasesConfirmedAt != null;
+  const purchasesComplete = unconfirmed === 0 && orders.length === 0;
   const finance = sales ? calculateFinance({ sales: sales.projectedPence, targetBps: target.targetBps, opening, expectedClosing: week?.expectedClosingStockPence ?? null, purchases, commitments, actualClosing: closing, actualSales: sales.actualPence, completeSales: sales.recordedDays === 7, purchasesConfirmed: purchasesComplete }) : null;
   const nextDate = week?.nextDeliveryDate ? dateKey(week.nextDeliveryDate) : null;
   const nextBudget = nextDate && nextDate >= today ? orderBudget(finance?.allowance ?? null,days.map(d => ({ date: d.date, demand: d.forecastPence })),nextDate,week?.followingDeliveryDate ? dateKey(week.followingDeliveryDate) : null,week?.stockAvailabilityConfirmed ?? false) : null;
