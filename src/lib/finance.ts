@@ -12,13 +12,14 @@ export function ratioBps(cost: bigint, sales: bigint): bigint | null { return sa
 export function ratioLabel(bps: bigint | null) { if (bps === null) return 'Not available'; const sign = bps < 0n ? '−' : ''; const n = bps < 0n ? -bps : bps; return `${sign}${n / 100n}.${String(n % 100n).padStart(2, '0')}%`; }
 export function calculateFinance(input: { sales: bigint; targetBps: number; opening: bigint | null; expectedClosing: bigint | null; purchases: bigint; commitments: bigint; actualClosing: bigint | null; actualSales: bigint; completeSales: boolean; purchasesConfirmed: boolean }) {
   const maximum = maximumCost(input.sales, input.targetBps);
-  const projectedCost = input.opening === null || input.expectedClosing === null ? null : input.opening + input.purchases - input.expectedClosing;
-  const purchasingBudget = input.opening === null || input.expectedClosing === null ? null : maximum - input.opening + input.expectedClosing;
-  const allowance = purchasingBudget === null ? null : purchasingBudget - input.purchases;
-  const projectedBps = projectedCost === null ? null : ratioBps(projectedCost, input.sales);
-  const actualCost = input.opening !== null && input.actualClosing !== null && input.completeSales && input.purchasesConfirmed && input.commitments === 0n ? input.opening + input.purchases - input.actualClosing : null;
-  // Compare the unrounded ratio; equality is not below target.
-  const warning = projectedCost === null || input.sales <= 0n ? 'UNKNOWN' : projectedCost * 10000n >= input.sales * BigInt(input.targetBps) ? 'AT_OR_ABOVE_TARGET' : projectedCost * 10000n >= input.sales * BigInt(Math.max(0, input.targetBps - 200)) ? 'NEAR_TARGET' : 'BELOW_TARGET';
+  // Purchasing control counts every confirmed delivery-week purchase, not food consumed.
+  // Stock values remain available for optional stock reporting but do not affect the allowance.
+  const projectedCost = input.purchases;
+  const purchasingBudget = maximum;
+  const allowance = purchasingBudget - input.purchases;
+  const projectedBps = ratioBps(input.purchases, input.sales);
+  const actualCost = input.completeSales && input.purchasesConfirmed && input.commitments === 0n ? input.purchases : null;
+  const warning = input.sales <= 0n ? 'UNKNOWN' : input.purchases * 10000n >= input.sales * BigInt(input.targetBps) ? 'AT_OR_ABOVE_TARGET' : input.purchases * 10000n >= input.sales * BigInt(Math.max(0, input.targetBps - 200)) ? 'NEAR_TARGET' : 'BELOW_TARGET';
   return { maximum, purchasingBudget, projectedCost, allowance, projectedBps, actualCost, actualBps: actualCost === null ? null : ratioBps(actualCost, input.actualSales), warning };
 }
 export function orderBudget(allowance: bigint | null, days: { date: string; demand: bigint }[], from: string | null, until: string | null, sufficient: boolean): bigint | null {
