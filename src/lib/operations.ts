@@ -231,7 +231,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       const data = await financialWeek(actor.restaurantId,v.weekStart,today,tx);
       if (!data.week) throw new OperationError('Create a forecast first.'); revision(data.week.updatedAt,v.stamp);
       if (data.week.finalizedAt) throw new OperationError('Week is already finalized.');
-      if (addDays(v.weekStart,6) >= today || data.finance?.actualCost === null || !data.finance) throw new OperationError('Finalization requires all seven sales, confirmed Sunday stock, opening stock and complete purchases with no outstanding orders.');
+      if (addDays(v.weekStart,6) >= today || data.finance?.actualCost === null || !data.finance) throw new OperationError('Finalization requires all seven actual sales and Super User-confirmed purchases with no outstanding orders.');
       if (!data.target.id) await tx.weeklyTarget.create({ data: { restaurantId: actor.restaurantId, weekStart: dateValue(v.weekStart), originalBps: data.target.targetBps, targetBps: data.target.targetBps, source: 'DEFAULT' } });
       await tx.weeklyForecast.update({ where: { id: data.week.id }, data: { finalizedAt: new Date(), openingStockPence: data.opening } });
       await audit('WEEK_FINALIZED','WeeklyForecast',data.week.id,null,{ weekStart: v.weekStart, targetBps: data.target.targetBps, originalTargetBps: data.target.originalBps, actualSalesPence: data.sales!.actualPence, purchasesPence: data.purchases, openingPence: data.opening, closingPence: data.closing, actualCostPence: data.finance.actualCost, actualBps: data.finance.actualBps }); return;
