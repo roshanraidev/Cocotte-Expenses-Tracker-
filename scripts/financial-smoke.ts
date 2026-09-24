@@ -63,10 +63,10 @@ try {
  assert.equal((await financialWeek('restaurant','2026-09-21',today,prisma)).opening,null); // Opening stock must be entered manually.
  await act('planning',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),opening:'50.00',expectedClosing:'30.00',nextDelivery:today,followingDelivery:'2026-09-21',sufficient:'on'});
  let data=await financialWeek('restaurant',monday,today,prisma);
- assert.equal(data.finance?.projectedCost,16500n);assert.equal(data.finance?.allowance,300n);assert.equal(data.nextBudget,300n);
+ assert.equal(data.finance?.projectedCost,14500n);assert.equal(data.finance?.allowance,2300n);assert.equal(data.nextBudget,2300n);
  const salesBefore=await prisma.dailySales.findMany();const stockBefore=await prisma.stockCountItem.findMany();const purchasesBefore=await prisma.purchaseInvoice.findMany();
  await saveTarget(prisma,admin,{weekStart:monday,percentage:'23',version:0,reason:''},false,today);
- data=await financialWeek('restaurant',monday,today,prisma);assert.equal(data.finance?.allowance,-400n);assert.equal(data.nextBudget,0n);
+ data=await financialWeek('restaurant',monday,today,prisma);assert.equal(data.finance?.allowance,1600n);assert.equal(data.nextBudget,1600n);
  assert.deepEqual(await prisma.dailySales.findMany(),salesBefore);assert.deepEqual(await prisma.stockCountItem.findMany(),stockBefore);assert.deepEqual(await prisma.purchaseInvoice.findMany(),purchasesBefore);
  await assert.rejects(act('planning',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),opening:'0',expectedClosing:'0',nextDelivery:'',followingDelivery:''},chef),/Only Super Users/);
  await assert.rejects(act('closing-total',{weekStart:monday,stamp:(await week()).updatedAt.toISOString(),amount:'20.31'},chef),/Only Super Users/);
@@ -136,12 +136,12 @@ try {
  for(const date of weekDays(nextMonday)) await saveActualSales(prisma,admin,{date,version:0,amount:10000n,reason:'Completed week test'},'2026-09-28');
  await runOperation(prisma,admin,'stock-plan',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString(),opening:'100',expectedClosing:'50',actualClosing:'50',reason:'Week-end valuation'},'2026-09-28');
  const final=await financialWeek('restaurant',nextMonday,'2026-09-28',prisma);
- assert.equal(final.finance?.actualCost,5000n);assert.equal(final.finance?.actualBps,714n);assert.equal(final.purchasesComplete,true);
+ assert.equal(final.finance?.actualCost,0n);assert.equal(final.finance?.actualBps,0n);assert.equal(final.purchasesComplete,true);
  assert.equal((await nextWeek()).purchasesConfirmedAt,null); // No separate confirmation step.
  await runOperation(prisma,admin,'finalize',{weekStart:nextMonday,stamp:(await nextWeek()).updatedAt.toISOString()},'2026-09-28');
  await assert.rejects(runOperation(prisma,chef,'purchase',{...purchase,submissionKey:randomUUID()},'2026-09-28'),/finalized/);
  assert.equal(await prisma.auditLog.count({where:{action:'WEEK_FINALIZED'}}),2);
- console.log('PASS: combined stock plan, week-end validation, automatic purchase completeness, final food cost and historical lock');
+ console.log('PASS: optional stock plan, week-end validation, automatic purchase completeness, final purchasing percentage and historical lock');
  console.log('PASS: simple net purchases, concurrent retry idempotency, Sunday-to-Monday allocation, corrections/voids, Chef restrictions, audit and persistence across connections');
  console.log('PASS: invoice corrections/credits, stock rounding/snapshots/carry-forward, budgets, target-only recalculation, finalized locks/reopening, audit rollback and Chef permissions');
  await packagingChecks(prisma);
