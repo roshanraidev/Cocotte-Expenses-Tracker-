@@ -226,3 +226,47 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-s
 @media print { .report-heading { background:white; border:0; padding:0; } .financial-summary > .card { box-shadow:none; } }
 
 .allowance-focus > .allowance-unplanned { font-size:clamp(25px,3vw,36px)!important; letter-spacing:-.7px; }
+
+
+/* CEO-ready weekly report: restrained Word/PDF-style presentation. */
+.executive-report { background:#fff; color:#202020; border:1px solid #d9ddd9; padding:28px; margin-bottom:22px; font-family:Arial,Helvetica,sans-serif; }
+.executive-report-header { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; padding-bottom:18px; border-bottom:2px solid #315c4d; margin-bottom:18px; }
+.executive-brand { color:#164638; font-family:Georgia,"Times New Roman",serif; font-size:34px; letter-spacing:.06em; line-height:1; }
+.executive-brand-sub { margin-top:5px; text-align:center; font-size:9px; letter-spacing:.38em; color:#315c4d; }
+.executive-report-header h1 { font-family:Georgia,"Times New Roman",serif; font-size:18px; font-weight:600; margin:0 0 5px; }
+.executive-report-header p { margin:3px 0; font-size:10px; color:#4f5652; }
+.executive-report section { margin:18px 0 24px; }
+.executive-report h2 { margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid #315c4d; font-family:Georgia,"Times New Roman",serif; font-size:16px; font-weight:600; }
+.executive-kpis { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
+.executive-kpis>div { min-height:108px; padding:12px 9px; text-align:center; border:1px solid #dedede; background:#f4f4f4; }
+.executive-kpis span { display:block; min-height:28px; font-size:10px; }
+.executive-kpis strong { display:block; margin-top:9px; font-family:Georgia,"Times New Roman",serif; font-size:20px; font-variant-numeric:tabular-nums; }
+.executive-kpis small { display:block; margin-top:8px; font-size:9px; color:#555; }
+.executive-kpis .executive-highlight { background:#edf5ef; border:2px solid #2c7a52; color:#155a39; }
+.executive-kpis .executive-highlight b { display:block; margin-top:7px; font-size:17px; }
+.executive-kpis .executive-over { background:#f9eeee; border-color:#a84a4a; color:#8a2929; }
+.executive-table { width:100%; border-collapse:collapse; font-size:10px; }
+.executive-table th,.executive-table td { padding:7px 9px; border:1px solid #d7d7d7; text-align:left; font-variant-numeric:tabular-nums; }
+.executive-table thead th { background:#ececec; font-weight:600; }
+.executive-table td:last-child,.executive-table th:last-child { text-align:right; }
+.executive-table tfoot th { background:#e7e7e7; font-size:11px; font-weight:700; }
+.executive-table .executive-variance th { background:#edf5ef; border-top:2px solid #2c7a52; border-bottom:2px solid #2c7a52; color:#155a39; font-size:12px; }
+.executive-result { margin-top:12px; padding:14px; border-left:4px solid #2c7a52; background:#edf5ef; color:#155a39; font-size:15px; font-weight:700; text-align:center; }
+.executive-result-over { border-color:#a84a4a; background:#f9eeee; color:#8a2929; }
+.executive-points { margin:0; padding-left:20px; font-size:11px; line-height:1.8; }
+.weekly-bars { height:220px; display:grid; grid-template-columns:repeat(7,1fr); gap:14px; align-items:end; padding:18px 14px 4px; border-left:1px solid #bbb; border-bottom:1px solid #bbb; margin-bottom:22px; }
+.weekly-bar-day { height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; font-size:9px; }
+.weekly-bar-track { height:180px; width:100%; display:flex; align-items:flex-end; justify-content:center; gap:3px; }
+.weekly-bar { display:block; width:30%; min-height:2px; }
+.weekly-bar-sales { background:#315c4d; }
+.weekly-bar-purchases { background:#b8b8b8; }
+@media(max-width:900px) { .executive-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .executive-report { padding:18px; overflow-x:auto; } }
+@media print {
+  @page { size:A4 portrait; margin:12mm; }
+  .screen-report-detail { display:none!important; }
+  .executive-report { border:0; padding:0; margin:0; font-size:9pt; }
+  .executive-page-break { break-before:page; page-break-before:always; }
+  .executive-report section { break-inside:auto; }
+  .executive-table tr { break-inside:avoid; }
+  .executive-report-header { margin-top:0; }
+}
