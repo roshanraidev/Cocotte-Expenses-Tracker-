@@ -30,7 +30,7 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       await tx.auditLog.create({ data: { restaurantId: actor.restaurantId, actorId: actor.id, action, entity, entityId, ...(before ? { before: json(before) } : {}), after: json(after), reason: explanation || null } });
     };
     if (operation === 'purchase') {
-      const v = z.object({ supplierId: text, orderDate: date, deliveryDate: date, amount: money, submissionKey: z.uuid() }).parse(raw);
+      const v = z.object({ supplierId: text, invoiceNumber: z.string().trim().min(1).max(100), orderDate: date, deliveryDate: date, amount: money, submissionKey: z.uuid() }).parse(raw);
       if (v.orderDate > today || v.deliveryDate < v.orderDate) throw new OperationError('Order date must be today or earlier, and delivery must be on or after the order date.');
       const prior = await tx.purchaseInvoice.findUnique({ where: { submissionKey: v.submissionKey } });
       if (prior) {
@@ -39,9 +39,11 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
       }
       await assertOpen(tx,actor.restaurantId,v.deliveryDate);
       await tx.supplier.findFirstOrThrow({ where: { id: v.supplierId, restaurantId: actor.restaurantId, active: true, foodWorkspace:true } });
+      const reference = v.invoiceNumber.toUpperCase().replace(/\s+/g,'');
+      if (await tx.purchaseInvoice.findFirst({where:{supplierId:v.supplierId,reference}})) throw new OperationError('This invoice number is already registered for this supplier. Open the existing purchase instead.');
       const row = await tx.purchaseInvoice.create({ data: {
         restaurantId: actor.restaurantId, supplierId: v.supplierId, submissionKey: v.submissionKey,
-        reference: `PUR-${v.submissionKey}`, orderDate: dateValue(v.orderDate), accountingDate: dateValue(v.deliveryDate),
+        reference, orderDate: dateValue(v.orderDate), accountingDate: dateValue(v.deliveryDate),
         amountPence: v.amount, confirmedAt: new Date(),
       } });
       await invalidatePurchases(v.deliveryDate);
@@ -61,13 +63,15 @@ export async function runOperation(prisma: PrismaClient, actor: SalesActor, oper
         const updated = await tx.purchaseInvoice.update({ where: { id: row.id }, data: { voidedAt: new Date() } });
         await audit('PURCHASE_VOIDED','PurchaseInvoice',row.id,row,updated,v.reason); return;
       }
-      const value = z.object({ supplierId: text, orderDate: date, deliveryDate: date, amount: money }).parse(raw);
+      const value = z.object({ supplierId: text, invoiceNumber: z.string().trim().min(1).max(100), orderDate: date, deliveryDate: date, amount: money }).parse(raw);
       if (value.orderDate > today || value.deliveryDate < value.orderDate) throw new OperationError('Check the order and delivery dates.');
       await assertOpen(tx,actor.restaurantId,value.deliveryDate);
       await tx.supplier.findFirstOrThrow({ where: { id: value.supplierId, restaurantId: actor.restaurantId, ...(value.supplierId === row.supplierId ? {} : {active:true,foodWorkspace:true}) } });
       if (value.supplierId !== row.supplierId && (row.creditForId || await tx.purchaseInvoice.count({where:{creditForId:row.id}}))) throw new OperationError('A purchase with linked credits must retain its supplier.');
+      const reference = value.invoiceNumber.toUpperCase().replace(/\s+/g,'');
+      if (await tx.purchaseInvoice.findFirst({where:{supplierId:value.supplierId,reference,id:{not:row.id}}})) throw new OperationError('This invoice number is already registered for this supplier. Open the existing purchase instead.');
       await invalidatePurchases(value.deliveryDate);
-      const updated = await tx.purchaseInvoice.update({ where: { id: row.id }, data: { supplierId:value.supplierId,orderDate:dateValue(value.orderDate),accountingDate:dateValue(value.deliveryDate),amountPence:row.creditForId ? -value.amount : value.amount } });
+      const updated = await tx.purchaseInvoice.update({ where: { id: row.id }, data: { supplierId:value.supplierId,reference,orderDate:dateValue(value.orderDate),accountingDate:dateValue(value.deliveryDate),amountPence:row.creditForId ? -value.amount : value.amount } });
       await audit('PURCHASE_CORRECTED','PurchaseInvoice',row.id,row,updated,v.reason); return;
     }
     if (operation === 'stock-plan') {
