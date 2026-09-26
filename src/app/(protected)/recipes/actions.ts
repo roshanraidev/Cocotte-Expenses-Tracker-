@@ -17,7 +17,7 @@ export async function saveRecipeType(form:FormData){
  revalidatePath('/recipes');
 }
 export async function deleteRecipeType(form:FormData){
- const user=await requireAdmin(),id=clean(form.get('id'),100); if(id) await db().$executeRaw(Prisma.sql`DELETE FROM "RecipeType" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`); revalidatePath('/recipes');
+ const user=await requireAdmin(),id=clean(form.get('id'),100); if(id){await db().$transaction(async tx=>{await tx.$executeRaw(Prisma.sql`DELETE FROM "Recipe" WHERE "typeId"=${id} AND "restaurantId"=${user.restaurantId}`);await tx.$executeRaw(Prisma.sql`DELETE FROM "RecipeType" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);});} revalidatePath('/recipes');
 }
 export async function saveRecipe(form:FormData){
  const user=await requireAdmin(),id=clean(form.get('id'),100),name=clean(form.get('name'),120),typeId=clean(form.get('typeId'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0);
