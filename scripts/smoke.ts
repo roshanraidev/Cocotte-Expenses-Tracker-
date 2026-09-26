@@ -48,7 +48,7 @@ try {
   await page.getByLabel('Email address').fill(adminEmail);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in to your kitchen' }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Good (morning|afternoon|evening),/ })).toBeVisible();
   await page.goto('http://localhost:3137/admin/users');
   await page.getByLabel('Full name').fill('Smoke Chef');
   await page.getByLabel('Email', { exact: true }).fill(chefEmail);
@@ -65,7 +65,7 @@ try {
   await chefPage.getByLabel('Email address').fill(chefEmail);
   await chefPage.getByLabel('Password', { exact: true }).fill(password);
   await chefPage.getByRole('button', { name: 'Sign in to your kitchen' }).click();
-  await expect(chefPage.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(chefPage.getByRole('heading', { name: /^Good (morning|afternoon|evening),/ })).toBeVisible();
   await chefPage.goto('http://localhost:3137/admin/users');
   await expect(chefPage).toHaveURL(/\/dashboard$/);
   expect(await chefPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

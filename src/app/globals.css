@@ -227,51 +227,106 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-s
 
 .allowance-focus > .allowance-unplanned { font-size:clamp(25px,3vw,36px)!important; letter-spacing:-.7px; }
 
-
-/* CEO-ready weekly report: restrained Word/PDF-style presentation. */
-.executive-report { background:#fff; color:#202020; border:1px solid #d9ddd9; padding:28px; margin-bottom:22px; font-family:Arial,Helvetica,sans-serif; }
-.executive-report-header { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; padding-bottom:18px; border-bottom:2px solid #315c4d; margin-bottom:18px; }
-.executive-brand { color:#164638; font-family:Georgia,"Times New Roman",serif; font-size:34px; letter-spacing:.06em; line-height:1; }
-.executive-brand-sub { margin-top:5px; text-align:center; font-size:9px; letter-spacing:.38em; color:#315c4d; }
-.executive-report-header h1 { font-family:Georgia,"Times New Roman",serif; font-size:18px; font-weight:600; margin:0 0 5px; }
-.executive-report-header p { margin:3px 0; font-size:10px; color:#4f5652; }
-.executive-report section { margin:18px 0 24px; }
-.executive-report h2 { margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid #315c4d; font-family:Georgia,"Times New Roman",serif; font-size:16px; font-weight:600; }
-.executive-kpis { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
-.executive-kpis>div { min-height:108px; padding:12px 9px; text-align:center; border:1px solid #dedede; background:#f4f4f4; }
-.executive-kpis span { display:block; min-height:28px; font-size:10px; }
-.executive-kpis strong { display:block; margin-top:9px; font-family:Georgia,"Times New Roman",serif; font-size:20px; font-variant-numeric:tabular-nums; }
-.executive-kpis small { display:block; margin-top:8px; font-size:9px; color:#555; }
-.executive-kpis .executive-highlight { background:#edf5ef; border:2px solid #2c7a52; color:#155a39; }
-.executive-kpis .executive-highlight b { display:block; margin-top:7px; font-size:17px; }
-.executive-kpis .executive-over { background:#f9eeee; border-color:#a84a4a; color:#8a2929; }
-.executive-table { width:100%; border-collapse:collapse; font-size:10px; }
-.executive-table th,.executive-table td { padding:7px 9px; border:1px solid #d7d7d7; text-align:left; font-variant-numeric:tabular-nums; }
-.executive-table thead th { background:#ececec; font-weight:600; }
-.executive-table td:last-child,.executive-table th:last-child { text-align:right; }
-.executive-table tfoot th { background:#e7e7e7; font-size:11px; font-weight:700; }
-.executive-table .executive-variance th { background:#edf5ef; border-top:2px solid #2c7a52; border-bottom:2px solid #2c7a52; color:#155a39; font-size:12px; }
-.executive-result { margin-top:12px; padding:14px; border-left:4px solid #2c7a52; background:#edf5ef; color:#155a39; font-size:15px; font-weight:700; text-align:center; }
-.executive-result-over { border-color:#a84a4a; background:#f9eeee; color:#8a2929; }
-.executive-points { margin:0; padding-left:20px; font-size:11px; line-height:1.8; }
-.weekly-bars { height:220px; display:grid; grid-template-columns:repeat(7,1fr); gap:14px; align-items:end; padding:18px 14px 4px; border-left:1px solid #bbb; border-bottom:1px solid #bbb; margin-bottom:22px; }
-.weekly-bar-day { height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; font-size:9px; }
-.weekly-bar-track { height:180px; width:100%; display:flex; align-items:flex-end; justify-content:center; gap:3px; }
-.weekly-bar { display:block; width:30%; min-height:2px; }
-.weekly-bar-sales { background:#315c4d; }
-.weekly-bar-purchases { background:#b8b8b8; }
-@media(max-width:900px) { .executive-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .executive-report { padding:18px; overflow-x:auto; } }
-@media print {
-  @page { size:A4 portrait; margin:12mm; }
-  .screen-report-detail { display:none!important; }
-  .executive-report { border:0; padding:0; margin:0; font-size:9pt; }
-  .executive-page-break { break-before:page; page-break-before:always; }
-  .executive-report section { break-inside:auto; }
-  .executive-table tr { break-inside:avoid; }
-  .executive-report-header { margin-top:0; }
+/* Layout and finishes from the supplied Cocotte reference. */
+:root { --background:#faf9f5; --forest:#0c3829; --foreground:#18382f; --gold:#c5ab72; --line:#ebeae3; }
+.sidebar { background:linear-gradient(155deg,#103f2e,#082e24); padding:20px 15px 14px; border:0; }
+.brand-name { font-family:Georgia,"Times New Roman",serif; font-size:28px; font-weight:400; line-height:1.1; }
+.brand-name > span { font-family:Arial,sans-serif; font-size:8px; letter-spacing:.12em; }
+.brand-mark { color:#d9c28b; border-color:#d9c28b; border-radius:12px; }
+.workspace-control { margin-top:22px; padding:0; border:0; background:transparent; }
+.workspace-control label { font-size:10px!important; text-transform:none; letter-spacing:0; color:#b7cabc; font-weight:400; }
+.workspace-select { background:#082c2255; border-color:#aac5ad45; font-size:12px; border-radius:8px; }
+.nav-item { min-height:42px; font-size:12px; border-radius:8px; }
+.nav-active { background:#b6d0b926; box-shadow:inset 2px 0 #d7bb77; }
+.nav-section-start { border-top:1px solid #acc5ae55; margin-top:17px; padding-top:19px; border-radius:0; }
+.sidebar-profile { margin-top:auto; display:flex; align-items:center; gap:10px; border:1px solid #a2bfaa42; border-radius:9px; padding:10px; color:#fff; }
+.sidebar-profile p { font-size:12px; }
+.sidebar-profile small { display:block; font-size:10px; color:#c5d3c6; }
+.profile-avatar { display:flex; align-items:center; justify-content:center; flex-shrink:0; height:32px; width:32px; border-radius:50%; background:#bda573; color:white; font-size:12px; }
+.profile-signout { min-width:44px; min-height:44px; display:grid; place-items:center; color:#d4ddce; }
+.sidebar-profile form { margin-left:auto; }
+.card { border-color:#eee; box-shadow:0 2px 7px #18382f05; border-radius:12px; padding:18px; }
+.section-title { font-family:Georgia,"Times New Roman",serif; font-size:17px; font-weight:600; letter-spacing:-.35px; }
+.reference-dashboard-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:17px; }
+.reference-dashboard-heading .page-title { font-size:27px; font-weight:600; margin:0 0 4px; }
+.reference-dashboard-heading .page-description { color:#4d5149; font-size:13px; }
+.reference-dashboard-heading .week-toolbar { margin:0; padding:0; background:none; border:0; }
+.reference-dashboard-heading .week-toolbar > div { gap:10px; }
+.reference-dashboard-heading .week-toolbar > div > div { border:1px solid #e2e0d5; background:#fff; padding:11px 12px; border-radius:8px; }
+.reference-dashboard-heading .week-toolbar p { font-size:11px; }
+.reference-dashboard-heading .week-toolbar nav { gap:6px; }
+.reference-dashboard-grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:16px; align-items:stretch; }
+.reference-dashboard-grid > * { min-width:0; }
+.reference-allowance { grid-column:1 / 9; grid-row:1; }
+.reference-dashboard-grid .dashboard-purchases { grid-column:9 / 13; grid-row:1; }
+.reference-dashboard-grid .dashboard-sales { grid-column:1 / 5; grid-row:2; }
+.reference-dashboard-grid .dashboard-cumulative { grid-column:5 / 10; grid-row:2; }
+.reference-dashboard-grid .dashboard-quick { grid-column:10 / 13; grid-row:2; }
+.reference-allowance { grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); padding:23px; gap:20px; border-top:0; border-radius:11px; background:linear-gradient(110deg,#093927,#103f2d); }
+.reference-allowance .allowance-focus h2 { color:#fff; font-size:13px; letter-spacing:.01em; }
+.reference-allowance .allowance-focus > div { font-family:Georgia,"Times New Roman",serif; font-size:clamp(36px,4.2vw,64px)!important; letter-spacing:-1.7px; margin:8px 0 6px; }
+.reference-allowance .allowance-focus > .allowance-unplanned { font-size:clamp(25px,2.5vw,34px)!important; letter-spacing:-.5px; }
+.reference-allowance .allowance-focus > p { font-size:12px; }
+.reference-allowance .allowance-breakdown { border:1px solid #aec5aa40; border-radius:8px; padding:5px 12px; background:#ffffff03; }
+.reference-allowance .allowance-breakdown > div { padding:7px 0; gap:10px; }
+.reference-allowance .allowance-breakdown dt { color:#ebefe7; font-size:11px; }
+.reference-allowance .allowance-breakdown dd { font-size:12px; margin:0; }
+.reference-allowance .allowance-breakdown > div:last-child dt { font-weight:600; color:white; }
+.reference-allowance .dashboard-actions { display:grid; grid-template-columns:1fr 1.15fr; gap:8px; margin:13px 0 0; }
+.reference-allowance .dashboard-actions .btn { padding:8px 7px; font-size:10px; line-height:1.4; text-align:center; gap:6px; }
+.btn-gold { background:#d6c18c; border-color:#e6d5aa; color:#18382f; }
+.btn-gold:hover:not(:disabled) { background:#e2d0a2; color:#18382f; }
+.budget-status { display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:6px; background:#1f774a; color:#fff; margin-top:10px; font-size:11px!important; }
+.allowance-explanation { font-size:10px; min-height:36px; margin-top:6px; }
+.panel-heading { margin-bottom:12px; }
+.panel-heading .section-title { font-size:16px; }
+.purchase-preview th { font-size:9px; }
+.purchase-preview td { font-size:11px; padding:10px 8px; }
+.purchase-preview td:first-child { white-space:normal; min-width:75px; }
+.purchase-preview th:last-child,.purchase-preview td:last-child { text-align:right; }
+.empty-panel { padding:24px 0; font-size:12px; color:#727a70; }
+.reference-dashboard-grid .compact-sales td { padding-top:9px; padding-bottom:9px; }
+.reference-dashboard-grid .dashboard-cumulative .chart-box { height:250px; }
+.dashboard-quick > .section-title { margin:0 0 10px; }
+.quick-action { display:grid; grid-template-columns:35px minmax(0,1fr) 12px; gap:10px; align-items:center; padding:13px 0; border-bottom:1px solid #eeeee7; }
+.quick-action:last-child { border-bottom:0; }
+.quick-action strong { display:block; font-family:Georgia,"Times New Roman",serif; font-size:13px; font-weight:600; }
+.quick-action small { display:block; color:#6a7069; margin-top:4px; font-size:11px; line-height:1.45; }
+.quick-icon { width:35px; height:35px; border-radius:8px; display:grid; place-items:center; color:#173e2e; background:#dcc58f; }
+.quick-action:hover strong { text-decoration:underline; text-underline-offset:3px; }
+.packaging-dashboard-heading { margin:0 0 20px; }
+.packaging-dashboard-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+.packaging-top-products { grid-column:1; grid-row:1; }
+.packaging-recent { grid-column:2; grid-row:1; }
+.packaging-frequency { grid-column:1 / -1; grid-row:2; }
+.packaging-summary > .card:first-child { background:#fff; color:var(--foreground); border:1px solid var(--line); border-top:2px solid #c8b78b; }
+.packaging-summary > .card:first-child p:first-child { color:#6b756b; }
+@media(min-width:1024px) { .app-header { display:none; } .workspace { padding:20px 25px 32px; } }
+@media(max-width:1279px) {
+ .reference-dashboard-heading { flex-wrap:wrap; }
+ .reference-allowance { grid-column:1 / -1; }
+ .reference-dashboard-grid .dashboard-purchases { grid-column:1 / 7; grid-row:2; }
+ .reference-dashboard-grid .dashboard-quick { grid-column:7 / 13; grid-row:2; }
+ .reference-dashboard-grid .dashboard-sales { grid-column:1 / 7; grid-row:3; }
+ .reference-dashboard-grid .dashboard-cumulative { grid-column:7 / 13; grid-row:3; }
 }
-
-
+@media(max-width:767px) {
+ .reference-dashboard-grid { display:flex; flex-direction:column; gap:14px; }
+ .reference-allowance { order:0; grid-template-columns:minmax(0,1fr); padding:20px; }
+ .reference-dashboard-grid .dashboard-sales { order:1; }
+ .reference-dashboard-grid .dashboard-cumulative { order:2; }
+ .reference-dashboard-grid .dashboard-purchases { order:3; }
+ .reference-dashboard-grid .dashboard-quick { order:4; }
+ .reference-allowance .allowance-focus > div { font-size:clamp(36px,10vw,58px)!important; }
+ .reference-allowance .allowance-focus > .allowance-unplanned { font-size:29px!important; }
+ .reference-allowance .dashboard-actions { grid-template-columns:1fr; }
+ .reference-allowance .dashboard-actions .btn { font-size:12px; }
+ .reference-dashboard-heading { gap:14px; }
+ .reference-dashboard-heading .page-title { font-size:25px; }
+ .packaging-dashboard-grid { display:flex; flex-direction:column; }
+ .packaging-top-products { order:0; } .packaging-recent { order:1; } .packaging-frequency { order:2; }
+ .brand-name { font-size:23px; }
+}
 /* Recipes: deliberately compact and built from the existing Cocotte design language. */
 .recipe-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,240px) auto;gap:10px;margin:0 0 16px}.recipe-search{position:relative;margin:0}.recipe-search svg{position:absolute;left:12px;top:14px;color:#69746a}.recipe-search input{padding-left:38px}.recipe-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.recipe-card{min-width:0;overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 8px #163b2e05}.recipe-card-image{display:block;aspect-ratio:4/3;background:#eef0e8;overflow:hidden}.recipe-card-image img{width:100%;height:100%;object-fit:cover}.recipe-card-image span{display:flex;height:100%;align-items:center;justify-content:center;color:#7b887d}.recipe-card-body{padding:9px 10px}.recipe-card-name{display:block;font-family:Georgia,"Times New Roman",serif;font-size:15px;line-height:1.2}.recipe-card-body p{margin-top:4px;color:#748076;font-size:10px}.recipe-card-admin{display:flex;gap:10px;margin-top:8px;padding-top:7px;border-top:1px solid #edf0e8;font-size:10px;text-decoration:underline}.recipe-type-add{display:grid;grid-template-columns:minmax(180px,1fr) 100px 120px auto;gap:10px;align-items:end;margin-bottom:16px}.recipe-type-row{display:grid;grid-template-columns:minmax(140px,1fr) 72px 90px auto;gap:6px;align-items:center}.recipe-type-row input,.recipe-type-row .btn{min-height:36px;padding:7px 9px}.recipe-check{display:flex;align-items:center;gap:7px;margin:0;font-size:12px}.recipe-check input{width:20px;height:20px;min-height:20px}.recipe-detail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.recipe-detail-grid{display:grid;grid-template-columns:minmax(240px,.72fr) minmax(0,1.6fr);gap:16px}.recipe-hero{overflow:hidden;aspect-ratio:4/3;border:1px solid var(--line);border-radius:12px;background:#eef0e8}.recipe-hero img{width:100%;height:100%;object-fit:cover}.recipe-hero>div{height:100%;display:flex;align-items:center;justify-content:center;color:#78837a}.recipe-notes{display:grid;gap:8px;margin-top:10px}.recipe-notes .card{padding:13px}.recipe-notes .section-title{margin:0 0 5px}.recipe-notes p,.recipe-step{font-size:12px;line-height:1.55}.recipe-methods{display:grid;grid-template-columns:1fr 1fr;gap:12px}.recipe-step+.recipe-step{margin-top:8px}.recipe-editor{display:grid;gap:16px}.recipe-editor-top{display:grid;grid-template-columns:2fr 1fr 100px 150px;gap:12px;align-items:end}.recipe-editor-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.recipe-editor-columns:first-of-type{grid-template-columns:1fr 1fr}.recipe-textarea{width:100%;min-height:170px;border:1px solid #d9dfd3;background:#fff;border-radius:10px;padding:12px;color:var(--foreground);font:inherit;line-height:1.5}.recipe-textarea.small{min-height:90px}.recipe-ingredients{min-height:210px}.recipe-textarea:focus{outline:3px solid #b7a76d;outline-offset:3px}
 @media(max-width:1200px){.recipe-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.recipe-editor-top{grid-template-columns:2fr 1fr 90px}}
