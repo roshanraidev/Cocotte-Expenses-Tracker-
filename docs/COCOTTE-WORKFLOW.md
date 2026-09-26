@@ -17,7 +17,7 @@ For phone access, see [the local-network instructions](HOSTING.md#phone-preview-
 ## Super User: plan and suppliers
 
 1. Open **Weekly Planning** and select a Monday–Sunday week. Enter the seven daily net-sales forecasts and that week's target.
-2. The **Weekly stock planning** card keeps opening stock, expected Sunday closing stock and actual Sunday closing stock together. Enter opening and expected closing values, then **Save stock plan**. Actual closing stock is available on or after Sunday. Blank actual closing means unknown; zero means a genuine zero valuation.
+2. The **Optional stock planning** card keeps opening stock, expected Sunday closing stock and actual Sunday closing stock together. Enter opening and expected closing values, then **Save stock plan**. Actual closing stock is available on or after Sunday. Blank actual closing means unknown; zero means a genuine zero valuation.
 3. Opening stock is manual and is never replaced by a previous count. No product entry or daily stock counts are required.
 4. Add or edit a supplier in **Supplier Management**. On the Chef device, return to the window, reload, or focus the supplier dropdown. The new active supplier appears from the shared database.
 
@@ -41,12 +41,12 @@ For phone access, see [the local-network instructions](HOSTING.md#phone-preview-
 
 ## Reports and week-end
 
-- **Sales:** original forecast versus actual, cumulative actuals and a chart. Unrecorded days remain blank; projection uses original forecasts for those days.
-- **Purchasing & Food Cost:** all stock values and the exact allowance breakdown. Actual cost = opening stock + confirmed purchases − actual closing stock. Actual percentage divides this by actual weekly net sales.
+- **Sales:** original forecast versus actual, cumulative actuals and a chart. Unrecorded days remain blank; the live projection uses the latest saved forecasts for those days.
+- **Food Purchasing:** purchasing budget = projected net sales × weekly target. Available to spend = that budget − confirmed food purchases. Final purchasing percentage = confirmed food purchases ÷ actual weekly net sales. Stock values do not affect these figures.
 - **Suppliers:** confirmed spending chart, numerical table, week/month/supplier filters and underlying purchase details. Voids are excluded; historical credits remain included once.
 - **Weekly History:** previous Monday–Sunday weeks with links to detailed reports. CSV and print use the selected report.
 
-At week-end, save the actual Sunday closing-stock total in the same stock card, with a reason for historical entry/corrections. Once the week has ended in London and all seven sales, opening stock and actual closing stock are present, the report can be Final. New purchases are already confirmed; there is no extra confirmation button. If old unconfirmed records exist, the report explains the reconciliation needed. **Finalize week** remains an optional Super User lock that preserves a reported snapshot; reopening is explicitly audited.
+Stock values may still be saved for separate stock records, but they are optional for purchasing control. Once the week has ended in London and all seven sales are present, the purchasing report can be Final. New purchases are already confirmed; there is no extra confirmation button. If old unconfirmed records exist, the report explains the reconciliation needed. **Finalize week** remains an optional Super User lock that preserves a reported snapshot; reopening is explicitly audited.
 
 ## Safe automated verification
 
@@ -63,7 +63,7 @@ npm run test:smoke
 
 Integration/browser tests use disposable PostgreSQL-compatible databases. They cover exact net amounts, delivery allocation, simultaneous duplicate requests, corrections, voids, audit/history, week-end stock, cross-device visibility, page reload and screen widths from 320px to 1440px. The browser test needs installed Chrome (`CHROME_PATH` can override its location).
 
-Example arithmetic in the isolated test: projected sales £650 × 23% = £149.50 maximum cost; minus £100 opening + £50 expected closing = £99.50 purchase budget. Saving a £25 net purchase leaves £74.50. Correcting it to £30 leaves £69.50. Voiding it restores £99.50. The real app uses your actual database figures.
+Example: projected net sales £650 × 23% = £149.50 purchasing budget. Saving a £25 confirmed food purchase leaves £124.50. Correcting it to £30 leaves £119.50. Voiding it restores £149.50. The real app uses your actual database figures.
 
 ## Packaging & Chemicals (second workspace)
 
