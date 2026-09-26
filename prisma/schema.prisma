@@ -52,6 +52,7 @@ model Restaurant {
   auditLogs   AuditLog[]
   packagingInvoices PackagingInvoice[]
   packagingProducts PackagingProduct[]
+  // Recipe tables are added by the recipes migration and accessed through typed SQL helpers.
 }
 
 model RestaurantSettings {
