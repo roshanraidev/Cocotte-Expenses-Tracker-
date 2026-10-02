@@ -8,7 +8,7 @@ import { requireAdmin } from '@/lib/auth';
 
 const clean=(v:FormDataEntryValue|null,max=5000)=>String(v??'').trim().slice(0,max);
 const bool=(v:FormDataEntryValue|null)=>v==='on';
-function ingredients(raw:string){return raw.split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{const [name='',quantity='',unit='']=line.split('|').map(x=>x.trim());return {name,quantity,unit};}).filter(x=>x.name).slice(0,100);}
+function ingredients(raw:string){return raw.split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{const [name='',quantity='',unit='']=line.split('|').map(x=>x.trim());return {name,quantity,unit};}).filter(x=>x.name);}
 export async function saveRecipeType(form:FormData){
  const user=await requireAdmin(),id=clean(form.get('id'),100),name=clean(form.get('name'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0),visible=bool(form.get('visible'));
  if(!name) throw new Error('Recipe type name is required.');
@@ -24,7 +24,7 @@ export async function saveRecipe(form:FormData){
  if(!name||!typeId) throw new Error('Recipe name and recipe type are required.');
  const validType=await db().$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "RecipeType" WHERE id=${typeId} AND "restaurantId"=${user.restaurantId} LIMIT 1`);
  if(!validType.length) throw new Error('Choose a valid recipe type.');
- const data={visible:bool(form.get('visible')),beforeService:clean(form.get('beforeService')),onOrder:clean(form.get('onOrder')),allergens:clean(form.get('allergens'),1000),mayContain:clean(form.get('mayContain'),1000),suitability:clean(form.get('suitability'),1000),ingredients:ingredients(clean(form.get('ingredients'),12000))};
+ const data={visible:bool(form.get('visible')),beforeService:clean(form.get('beforeService')),onOrder:clean(form.get('onOrder')),allergens:clean(form.get('allergens'),1000),mayContain:clean(form.get('mayContain'),1000),suitability:clean(form.get('suitability'),1000),ingredients:ingredients(String(form.get('ingredients')??''))};
  const image=form.get('image'); let bytes:Uint8Array|null=null,mime:string|null=null;
  if(image instanceof File&&image.size){if(image.size>5*1024*1024||!['image/jpeg','image/png','image/webp'].includes(image.type)) throw new Error('Recipe image must be JPG, PNG or WEBP and no larger than 5 MB.');bytes=new Uint8Array(await image.arrayBuffer());mime=image.type;}
  if(id){
