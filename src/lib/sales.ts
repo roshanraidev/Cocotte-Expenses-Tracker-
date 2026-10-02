@@ -7,7 +7,7 @@ export function projectSales(monday: string, days: SalesDay[], today: string) {
   const originalPence = days.reduce((sum, day) => sum + day.originalPence, 0n);
   const forecastPence = days.reduce((sum, day) => sum + day.forecastPence, 0n);
   const actualPence = days.reduce((sum, day) => sum + (day.actualPence ?? 0n), 0n);
-  const remainingForecastPence = days.reduce((sum, day) => sum + (day.actualPence === null ? day.originalPence : 0n), 0n);
+  const remainingForecastPence = days.reduce((sum, day) => sum + (day.actualPence === null ? day.forecastPence : 0n), 0n);
   return {
     originalPence, forecastPence, actualPence, remainingForecastPence,
     projectedPence: actualPence + remainingForecastPence,

@@ -25,7 +25,7 @@ describe('sales planning', () => {
     const days = weekDays(monday).map((date, i) => ({ date, originalPence: 10000n, forecastPence: 12000n, actualPence: i === 0 ? actual : null }));
     const result = projectSales(monday, days, '2026-09-16');
     expect(result.originalPence).toBe(70000n);
-    expect(result.projectedPence).toBe(60000n + actual);
+    expect(result.projectedPence).toBe(72000n + actual);
     expect(result.recordedDays).toBe(1);
     expect(result.missingPastDates).toEqual(['2026-09-15']);
     expect(result.variancePence).toBe(actual - 10000n);

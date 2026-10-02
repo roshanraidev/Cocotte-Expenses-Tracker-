@@ -1,8 +1,8 @@
-# Restaurant Food Cost Tracker
+# Restaurant Food Purchasing Tracker
 
 A Next.js / React / TypeScript application with Tailwind CSS, PostgreSQL, Prisma and secure email/password authentication. Currency: GBP. Business timezone: Europe/London.
 
-**Current implementation:** Secure Chef/Super User accounts; weekly forecasts and sales; default and weekly food-cost targets with scheduling and audit history; immediate confirmed supplier purchases with audited corrections/voids; manual weekly stock planning and preserved historical order/count tools; exact food-cost calculations, finalized reports and CSV export; responsive forest-green/cream/gold allowance dashboard and detailed four-tab real-data reports and reduced-motion support. See [implementation status and business rules](docs/IMPLEMENTATION.md).
+**Current implementation:** Secure Chef/Super User accounts; weekly forecasts and sales; default and weekly food-purchasing targets with scheduling and audit history; immediate confirmed supplier purchases with audited corrections/voids; manual weekly stock planning and preserved historical order/count tools; exact purchasing-percentage calculations, finalized reports and CSV export; responsive forest-green/cream/gold allowance dashboard and detailed four-tab real-data reports and reduced-motion support. See [implementation status and business rules](docs/IMPLEMENTATION.md).
 
 ## Run your existing Cocotte installation on your Mac
 
@@ -136,15 +136,15 @@ The normal **Record Supplier Purchase** form requires only active supplier, orde
 
 Weekly Planning is Super User-only and groups manual opening stock, expected Sunday closing stock and actual Sunday closing stock in one card. Actual stock is entered at week-end. No daily or product stock counts are required; legacy catalogue/count records remain available under optional historical tools.
 
-Updated projected sales use actual sales for recorded days and original forecasts for unrecorded days. Maximum cost of sales is projected sales × the week's target, floored to pence. Purchasing budget is maximum cost − manual opening stock + expected closing stock. Available to spend is purchasing budget − confirmed, non-void net purchases allocated by delivery date. Legacy order estimates are excluded. Missing planning values stay unknown; negative allowances remain visible.
+Updated projected sales use actual sales for recorded days and the latest saved forecasts for unrecorded days. The purchasing budget is projected net sales × the week's target, floored to pence. Available to spend is that budget minus confirmed, non-void food purchases allocated by delivery date. Opening and closing stock do not affect the purchasing budget or percentage. Legacy order estimates are excluded; negative allowances remain visible.
 
-Reports retain Sales, Purchasing & Food Cost, Suppliers and Weekly History, with real-data charts, exact-value tables, CSV and print. Final actual cost uses opening + confirmed purchases − actual closing, divided by actual weekly sales for the percentage. The week must have ended with all seven sales and required stock data; any old unconfirmed records must be reconciled. New purchases need no additional confirmation step. Finalization locks the week and preserves a reported snapshot; reopening requires a Super User reason.
+Reports retain Sales, Food Purchasing, Suppliers and Weekly History, with real-data charts, exact-value tables, CSV and print. Final purchasing percentage is confirmed food purchases divided by all seven days of actual net sales. The week must have ended with all seven sales; any old unconfirmed purchase records must be reconciled. New purchases need no additional confirmation step. Finalization locks the week and preserves a reported snapshot; reopening requires a Super User reason.
 
 See [the full account workflow](docs/COCOTTE-WORKFLOW.md) and [hosting requirements / phone preview](docs/HOSTING.md). Business data is stored only in server-side PostgreSQL; production configuration uses private environment variables. No deployment has been performed. The local placeholder `.env.example` remains ignored, along with private credentials and backups.
 
 ## Packaging & Chemicals workspace
 
-Use the **Workspace** selector beneath the Cocotte logo to switch workspaces with the same login. Food calculations are unchanged: packaging invoices use separate database tables and never reduce food allowance or food cost.
+Use the **Workspace** selector beneath the Cocotte logo to switch workspaces with the same login. Food calculations are unchanged: packaging invoices use separate database tables and never reduce food purchasing allowance or purchasing percentage.
 
 1. Click **Upload Invoice** in Packaging & Chemicals. Choose or drag in a PDF/JPG/JPEG/PNG and preview it immediately—even when no supplier is configured. On a phone use the file chooser’s camera/photo options.
 2. Click **Upload & review invoice** to save the original to PostgreSQL and attempt extraction. Select a supplier in the compact review header. Super Users can create/enable suppliers under **Supplier options**; Chefs can save an unknown-supplier draft.

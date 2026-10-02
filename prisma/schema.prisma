@@ -52,6 +52,8 @@ model Restaurant {
   auditLogs   AuditLog[]
   packagingInvoices PackagingInvoice[]
   packagingProducts PackagingProduct[]
+  recipeTypes RecipeType[]
+  recipes Recipe[]
 }
 
 model RestaurantSettings {
@@ -446,4 +448,42 @@ model PackagingLine {
   netPence BigInt
   position Int
   @@unique([invoiceId,position])
+}
+
+
+model RecipeType {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  name String
+  visible Boolean @default(true)
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  recipes Recipe[]
+  @@unique([restaurantId, name])
+  @@index([restaurantId, visible, sortOrder])
+}
+
+model Recipe {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  typeId String
+  type RecipeType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  name String
+  visible Boolean @default(true)
+  sortOrder Int @default(0)
+  imageMime String?
+  imageBytes Bytes?
+  ingredients Json
+  beforeService String @default("")
+  onOrder String @default("")
+  allergens String @default("")
+  mayContain String @default("")
+  suitability String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([restaurantId, typeId, name])
+  @@index([restaurantId, visible, typeId, sortOrder])
 }
