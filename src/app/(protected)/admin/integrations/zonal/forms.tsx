@@ -1,0 +1,17 @@
+'use client';
+import { useActionState } from 'react';
+import { zonalAction } from './actions';
+import { moneyFields } from '@/lib/zonal/validation';
+function Feedback({ error, success }: { error: string; success: string }) { return <div aria-live="polite">{error && <p role="alert" className="notice mt-4">{error}</p>}{success && <p className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-900">{success}</p>}</div>; }
+export function ConnectionForm() {
+  const [state, action, pending] = useActionState(zonalAction, { error: '', success: '' });
+  return <form action={action}><input type="hidden" name="action" value="test"/><button className="btn btn-secondary" disabled={pending}>{pending ? 'Checking configuration…' : 'Test connection readiness'}</button><Feedback {...state}/></form>;
+}
+export function ReportForm({ branch, today }: { branch: string; today: string }) {
+  const [state, action, pending] = useActionState(zonalAction, { error: '', success: '' });
+  return <form action={action} className="mt-5"><input type="hidden" name="action" value="preview"/><div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="branch">Zonal branch (match report exactly)</label><input id="branch" name="branch" required defaultValue={branch} maxLength={120}/></div><div><label htmlFor="report-date">Reporting date</label><input id="report-date" name="date" type="date" required max={today} defaultValue={today}/></div><div><label htmlFor="currency">Report currency</label><select id="currency" name="currency"><option>GBP</option></select></div>{moneyFields.map(key => <div key={key}><label htmlFor={key}>{({ gross: 'Gross sales', discount: 'Discounts', vat: 'VAT', net: 'Net sales', food: 'Food net sales', drink: 'Drink net sales', specials: 'Specials net sales' })[key]} · GBP</label><input id={key} name={key} inputMode="decimal" placeholder="Enter report value" required maxLength={24}/></div>)}{['covers', 'transactions'].map(key => <div key={key}><label htmlFor={key}>{key === 'covers' ? 'Covers' : 'Transaction count'} · optional</label><input id={key} name={key} inputMode="numeric" placeholder="Leave blank if unavailable" maxLength={9}/></div>)}</div><p className="my-4 text-xs leading-6 text-stone-500">Read the Financial Detail report and enter its figures. Missing amounts must be resolved before preview. Department rounding tolerance: 1p. Zonal Cost % is never imported.</p><button className="btn" disabled={pending || !branch}>{pending ? 'Validating report…' : 'Preview sales import'}</button><Feedback {...state}/></form>;
+}
+export function ApprovalForm({ id, conflict }: { id: string; conflict: boolean }) {
+  const [state, action, pending] = useActionState(zonalAction, { error: '', success: '' });
+  return <form action={action} className="mt-4"><input type="hidden" name="id" value={id}/>{conflict && <label className="flex items-center gap-3"><input name="overwrite" type="checkbox"/>I explicitly approve replacing the existing Daily Sales amount.</label>}<label htmlFor={`reason-${id}`} className="mt-4">Reason for import / correction</label><input id={`reason-${id}`} name="reason" maxLength={500} placeholder="Required for corrections and historical weeks"/><div className="mt-4 flex flex-wrap gap-3"><button className="btn" name="action" value="approve" disabled={pending}>{pending ? 'Processing…' : 'Approve import'}</button><button className="btn btn-secondary" name="action" value="cancel" disabled={pending}>Cancel preview</button></div><Feedback {...state}/></form>;
+}

@@ -54,6 +54,7 @@ model Restaurant {
   packagingProducts PackagingProduct[]
   recipeTypes RecipeType[]
   recipes Recipe[]
+  zonalImports ZonalImport[]
 }
 
 model RestaurantSettings {
@@ -76,6 +77,7 @@ model User {
   active       Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  zonalImports ZonalImport[]
   sessions     Session[]
   auditLogs    AuditLog[]
 
@@ -486,4 +488,25 @@ model Recipe {
   updatedAt DateTime @updatedAt
   @@unique([restaurantId, typeId, name])
   @@index([restaurantId, visible, typeId, sortOrder])
+}
+
+// Daily-sales-only pilot; credentials are never stored here.
+model ZonalImport {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  date DateTime @db.Date
+  branch String
+  source String
+  status String @default("PREVIEW")
+  payload Json
+  fingerprint String
+  salesVersion Int
+  previousPence BigInt?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, date, fingerprint])
 }
