@@ -54,6 +54,7 @@ model Restaurant {
   packagingProducts PackagingProduct[]
   recipeTypes RecipeType[]
   recipes Recipe[]
+  zonalSyncBatches ZonalSyncBatch[]
   zonalConnection ZonalConnection?
   zonalImports ZonalImport[]
 }
@@ -79,6 +80,7 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   zonalImports ZonalImport[]
+  zonalSyncBatches ZonalSyncBatch[]
   sessions     Session[]
   auditLogs    AuditLog[]
 
@@ -493,6 +495,7 @@ model Recipe {
 
 // Daily-sales-only pilot; credentials are never stored here.
 model ZonalImport {
+  syncDays ZonalSyncDay[]
   id String @id @default(cuid())
   restaurantId String
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
@@ -525,4 +528,38 @@ model ZonalConnection {
   lastAttemptAt DateTime?
   lastResultCode String?
   updatedAt DateTime @updatedAt
+}
+
+// Manual batch jobs only; credentials/report bodies are never duplicated here.
+model ZonalSyncBatch {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+  actorId String
+  actor User @relation(fields:[actorId],references:[id],onDelete:Restrict)
+  branch String
+  from DateTime @db.Date
+  to DateTime @db.Date
+  status String @default("RUNNING")
+  connectionRevision Int
+  heartbeatAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  finishedAt DateTime?
+  days ZonalSyncDay[]
+  @@index([restaurantId,createdAt])
+}
+
+model ZonalSyncDay {
+  id String @id @default(cuid())
+  batchId String
+  batch ZonalSyncBatch @relation(fields:[batchId],references:[id],onDelete:Restrict)
+  date DateTime @db.Date
+  status String @default("PENDING")
+  attempted Boolean @default(false)
+  errorCode String?
+  approvalError String?
+  previewId String?
+  preview ZonalImport? @relation(fields:[previewId],references:[id],onDelete:Restrict)
+  checkedAt DateTime?
+  @@unique([batchId,date])
 }

@@ -41,7 +41,7 @@ export async function fetchZonalReport(restaurantId:string,credentials:ZonalCred
     return result;
   }finally{running.delete(restaurantId);}
 }
-function runWorker(restaurantId: string, credentials: ZonalCredentials, request?:{branch:string;date:string}): Promise<LoginResult> {
+export function runWorker(restaurantId: string, credentials: ZonalCredentials, request?:{branch:string;date:string;dates?:string[];onDay?:(date:string,result:LoginResult)=>Promise<void>}): Promise<LoginResult> {
   return new Promise(resolve => {
     // Child gets an allowlisted environment. Do not inherit DEBUG, PWDEBUG, tracing,
     // NODE_OPTIONS or application/database secrets. Credentials never appear in arguments.
@@ -51,7 +51,8 @@ function runWorker(restaurantId: string, credentials: ZonalCredentials, request?
     env.ZONAL_PASSWORD = credentials.password;
     let settled = false;
     let cancelled = false;
-    const child = spawn(process.execPath, ['scripts/zonal/worker.mjs', request ? 'extract' : 'login', ...(request ? [request.date] : [])], { cwd: process.cwd(), env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    const child = spawn(process.execPath, ['scripts/zonal/worker.mjs', request?.dates ? 'batch' : request ? 'extract' : 'login', ...(request ? [request.dates?.join(',')??request.date] : [])], { cwd: process.cwd(), env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    let writes=Promise.resolve();
     let result: LoginResult = { code: 'BROWSER_FAILED' };
     const diagnostics: z.infer<typeof diagnosticSchema>[] = [];
     let hardStop: ReturnType<typeof setTimeout> | undefined;
@@ -66,14 +67,26 @@ function runWorker(restaurantId: string, credentials: ZonalCredentials, request?
       hardStop.unref();
     };
     running.set(restaurantId, stop);
-    const complete = () => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(hardStop); resolve(diagnostics.length ? { ...result, diagnostics } : result); };
+    const complete = () => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(hardStop); void writes.then(()=>resolve(diagnostics.length ? { ...result, diagnostics } : result)); };
     child.on('message', message => {
+      if(request?.dates && !cancelled && typeof message==='object' && message!==null && 'type' in message && message.type==='batch-day'){
+        const day=z.object({type:z.literal('batch-day'),date:z.string(),result:resultSchema}).strict().safeParse(message);
+        if(day.success && request.dates.includes(day.data.date)){ const data=day.data; writes=writes.then(()=>request.onDay?.(data.date,data.result)).catch(()=>{stop();}); }
+        return;
+      }
       const diagnostic = diagnosticSchema.safeParse(message);
       if (diagnostic.success && diagnostics.length < 40) { diagnostics.push(diagnostic.data); console.info('[zonal]', diagnostic.data.stage, diagnostic.data.reason); return; }
       const parsed = resultSchema.safeParse(message); if (!cancelled && parsed.success) result = parsed.data;
     });
     child.on('error', complete);
     child.on('exit', complete);
-    const timer = setTimeout(stop, request ? 95000 : 40000);
+    const timer = setTimeout(stop, request?.dates ? 900000 : request ? 95000 : 40000);
   });
+}
+
+export async function fetchZonalBatch(restaurantId:string,credentials:ZonalCredentials,dates:string[],onDay:(date:string,result:LoginResult)=>Promise<void>){
+ if(running.has(restaurantId))throw new ZonalError('A Zonal browser job is already running.');
+ if(!dates.length||dates.length>31||dates.some(d=>!validDateKey(d)||d>=londonToday()))throw new ZonalError('Invalid completed-day range.');
+ try{return await runWorker(restaurantId,credentials,{branch:'003 – Parsons Green',date:dates[0],dates,onDay});}
+ finally{running.delete(restaurantId);}
 }
