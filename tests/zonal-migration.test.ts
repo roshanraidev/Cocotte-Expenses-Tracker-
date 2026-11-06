@@ -7,6 +7,9 @@ it('applies the additive Zonal migration without changing existing sales and enf
     await pg.exec(readFileSync('prisma/migrations/20260919000100_initial/migration.sql', 'utf8'));
     await pg.exec(`INSERT INTO "Restaurant" (id,name) VALUES ('restaurant','Cocotte'); INSERT INTO "User" (id,"restaurantId",name,email,"passwordHash","updatedAt") VALUES ('u','restaurant','Operator','operator@example.test','not-a-real-password-hash',now()); INSERT INTO "DailySales" (id,"restaurantId",date,"amountPence","updatedAt") VALUES ('s','restaurant','2026-11-03',12345,now())`);
     await pg.exec(readFileSync('prisma/migrations/20261104000100_zonal_sales_pilot/migration.sql', 'utf8'));
+    await pg.exec(readFileSync('prisma/migrations/20261104000200_zonal_encrypted_connection/migration.sql', 'utf8'));
+    await pg.exec(`INSERT INTO "ZonalConnection" ("restaurantId",branch,"updatedAt") VALUES ('restaurant','003 – Parsons Green',now())`);
+    await expect(pg.exec(`UPDATE "ZonalConnection" SET "loginVerifiedAt"=now() WHERE "restaurantId"='restaurant'`)).rejects.toThrow();
     const sale = await pg.query<{ amountPence: number }>(`SELECT "amountPence" FROM "DailySales" WHERE id='s'`);
     expect(Number(sale.rows[0].amountPence)).toBe(12345);
     await pg.exec(`INSERT INTO "ZonalImport" (id,"restaurantId","actorId",date,branch,source,payload,fingerprint,"salesVersion") VALUES ('preview','restaurant','u','2026-11-03','Test branch','ZONAL_MANUAL','{}','test',0)`);

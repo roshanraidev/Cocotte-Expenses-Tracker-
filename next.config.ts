@@ -3,6 +3,7 @@ const config: NextConfig = {
   // Explicit LAN hosts for browser review only; never a production trust wildcard.
   allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '').split(',').map(host => host.trim()).filter(Boolean),
   serverExternalPackages: ['argon2', 'pg', 'tesseract.js', '@tesseract.js-data/eng', 'pdfjs-dist', '@napi-rs/canvas'],
+  outputFileTracingIncludes: { '/admin/integrations/zonal': ['./scripts/zonal/worker.mjs', './src/lib/zonal/browser-session.mjs', './src/lib/zonal/network-policy.mjs', './src/lib/zonal/financial-detail.mjs', './src/lib/zonal/financial-parser.mjs', './node_modules/playwright/**/*', './node_modules/playwright-core/**/*'] },
   experimental: { serverActions: { bodySizeLimit: '10mb' } },
   async headers() {
     return [{ source: '/(.*)', headers: [

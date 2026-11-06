@@ -54,6 +54,7 @@ model Restaurant {
   packagingProducts PackagingProduct[]
   recipeTypes RecipeType[]
   recipes Recipe[]
+  zonalConnection ZonalConnection?
   zonalImports ZonalImport[]
 }
 
@@ -509,4 +510,19 @@ model ZonalImport {
   completedAt DateTime?
   @@index([restaurantId, createdAt])
   @@index([restaurantId, date, fingerprint])
+}
+
+// One encrypted connection per restaurant. Disconnect removes the envelope;
+// the row retains revision/cooldown metadata to invalidate in-flight checks.
+model ZonalConnection {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  branch String
+  encryptedCredentials String?
+  revision Int @default(1)
+  loginVerifiedAt DateTime?
+  reportAccessVerifiedAt DateTime?
+  lastAttemptAt DateTime?
+  lastResultCode String?
+  updatedAt DateTime @updatedAt
 }

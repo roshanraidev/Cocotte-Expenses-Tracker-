@@ -17,8 +17,8 @@ export function validateReport(input: unknown, branch: string, date: string): Re
   const r = parsed.data;
   if (r.branch !== branch) throw new ZonalError('Report branch does not match the configured restaurant.');
   if (r.date !== date) throw new ZonalError('Report date does not match the requested date.');
-  // Discount convention must be verified against the live Financial Detail report.
-  if (BigInt(r.gross) - BigInt(r.discount) - BigInt(r.vat) !== BigInt(r.net)) throw new ZonalError('Gross less discounts and VAT must equal net sales. Verify the report convention.');
+  // Verified Zonal Gross Sales is AFTER discounts; Gross Sales Incl Disc is a separate report field.
+  if (BigInt(r.gross) - BigInt(r.vat) !== BigInt(r.net)) throw new ZonalError('Gross Sales less VAT must equal Net Sales. Enter the report’s Gross Sales field after discounts.');
   const difference = BigInt(r.food) + BigInt(r.drink) + BigInt(r.specials) - BigInt(r.net);
   if (difference < -1n || difference > 1n) throw new ZonalError('Department totals do not reconcile to net sales (1p rounding tolerance).');
   return r;

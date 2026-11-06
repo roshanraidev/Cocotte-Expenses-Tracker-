@@ -11,6 +11,8 @@ import { WeekNavigation } from '@/components/week-navigation';
 import { MoneyValue } from '@/components/money-value';
 import { cumulativeSales } from '@/lib/reporting';
 import { ReportChart } from '@/components/report-chart';
+import { loadSalesSources } from '@/lib/zonal/sales-source-data';
+import { ZonalSalesBadge } from '@/components/zonal-sales-source';
 import { LiveRefresh } from '@/components/live-refresh';
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ week?: string | string[] }> }) {
   const user = await requireUser();
@@ -18,6 +20,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const monday = selectedWeek((await searchParams).week, today);
   const data = await financialWeek(user.restaurantId, monday, today);
   const { days, sales, finance, target } = data;
+  const sources=await loadSalesSources(db(),user.restaurantId,monday);
   const recentOrders = await db().purchaseInvoice.findMany({where:{restaurantId:user.restaurantId,confirmedAt:{not:null},voidedAt:null,accountingDate:{gte:dateValue(monday),lte:dateValue(addDays(monday,6))}},include:{supplier:true},orderBy:{createdAt:'desc'},take:5});
   const amount = (value: bigint | null | undefined) => value == null ? '—' : formatGBP(value);
   const available = finance?.allowance;
@@ -53,7 +56,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       <div className="dashboard-actions"><Link className="btn btn-gold" href="/sales"><ChartNoAxesCombined size={16}/>Enter Today’s Sales</Link><Link className="btn btn-secondary" href={`/orders?week=${monday}`}><Truck size={16}/>Register Supplier Purchase</Link></div></div>
     </section>
     <section className="card dashboard-sales"><div className="panel-heading flex flex-wrap items-center justify-between gap-3"><h2 className="section-title">Weekly Sales Performance</h2><Link className="text-sm underline" href={`/reports?week=${monday}&tab=sales`}>View detailed sales report</Link></div>
-      <div className="overflow-x-auto"><table className="data-table compact-sales"><thead><tr><th>Day</th><th>Forecast</th><th>Actual</th><th>Variance</th></tr></thead><tbody>{days.map(day => <tr key={day.date}><td><abbr className="no-underline" title={dayLabel(day.date)}>{dayLabel(day.date).slice(0,3)}</abbr></td><td>{amount(day.originalPence)}</td><td>{amount(day.actualPence)}</td><td className={day.actualPence == null ? '' : day.actualPence >= day.originalPence ? 'text-[#285440]' : 'text-amber-800'}>{day.actualPence == null ? '—' : amount(day.actualPence - day.originalPence)}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="data-table compact-sales"><thead><tr><th>Day</th><th>Forecast</th><th>Actual</th><th>Variance</th></tr></thead><tbody>{days.map(day => <tr key={day.date}><td><abbr className="no-underline" title={dayLabel(day.date)}>{dayLabel(day.date).slice(0,3)}</abbr></td><td>{amount(day.originalPence)}</td><td>{amount(day.actualPence)}<ZonalSalesBadge source={sources.get(day.date)} amount={day.actualPence} admin={user.role==='SUPER_USER'}/></td><td className={day.actualPence == null ? '' : day.actualPence >= day.originalPence ? 'text-[#285440]' : 'text-amber-800'}>{day.actualPence == null ? '—' : amount(day.actualPence - day.originalPence)}</td></tr>)}</tbody></table></div>
       {!days.length && <p className="py-4 text-sm text-stone-500">No forecast has been entered for this week.</p>}
       <p className="mt-4 text-xs text-stone-500">{sales?.recordedDays ?? 0}/7 actual sales days recorded. Unrecorded days retain their original forecast.</p>
     </section>

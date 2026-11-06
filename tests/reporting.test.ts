@@ -8,13 +8,16 @@ describe('auditable weekly reports',()=>{
   expect(rows.map(d=>d.cumulativeActual)).toEqual([140000n,340000n,560000n,null,560000n]);
   expect(rows.at(-1)?.cumulativeForecast).toBe(500000n);
  });
- it('requires the week to have ended and every source to be complete',()=>{
+ it('requires the week to have ended and sales and purchases to be complete',()=>{
   expect(reportStatus(complete).status).toBe('Final');
   expect(reportStatus({...complete,today:'2026-09-20'}).status).toBe('In progress');
-  for(const missing of [{recordedDays:6},{closing:null},{opening:null},{purchasesConfirmed:false},{outstandingOrders:1}])expect(reportStatus({...complete,...missing}).status).toBe('Provisional');
+  for(const missing of [{recordedDays:6},{purchasesConfirmed:false},{outstandingOrders:1}])expect(reportStatus({...complete,...missing}).status).toBe('Provisional');
  });
- it('preserves manual zero opening and exposes the purchasing budget',()=>{
+ it('keeps optional stock values out of purchasing report completeness',()=>{
+  for (const stock of [{opening:null},{closing:null},{opening:0n,closing:0n}]) expect(reportStatus({...complete,...stock}).status).toBe('Final');
+ });
+ it('preserves manual zero opening without adding stock to the purchasing budget',()=>{
   const result=calculateFinance({sales:1800000n,targetBps:2400,opening:0n,expectedClosing:50000n,purchases:200000n,commitments:50000n,actualClosing:40000n,actualSales:1800000n,completeSales:true,purchasesConfirmed:true});
-  expect(result.purchasingBudget).toBe(482000n);expect(result.allowance).toBe(282000n);
+  expect(result.purchasingBudget).toBe(432000n);expect(result.allowance).toBe(232000n);
  });
 });

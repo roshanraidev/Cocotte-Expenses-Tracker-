@@ -24,7 +24,7 @@ describe('Financial Detail validation', () => {
 });
 function database(options: { sale?: { version: number; amountPence: bigint }; status?: string; foreign?: boolean; prior?: boolean; finalized?: boolean } = {}) {
   const record = { id: 'preview', restaurantId: 'cocotte', actorId: 'super', date: new Date('2026-11-03T00:00:00Z'), branch: sample.branch, payload: parse(), fingerprint: fingerprint(parse()), source: 'ZONAL_MANUAL', status: options.status ?? 'PREVIEW', createdAt: new Date(), salesVersion: 0 };
-  const tx = { $queryRaw: vi.fn(), restaurant: { findUniqueOrThrow: vi.fn().mockResolvedValue({ currency: 'GBP' }) }, dailySales: { findUnique: vi.fn().mockResolvedValue(options.sale ?? null), create: vi.fn().mockResolvedValue({ id: 'sale' }), update: vi.fn().mockResolvedValue({ id: 'sale' }) }, zonalImport: { findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.id ? options.foreign ? null : record : options.prior ? record : null)), create: vi.fn().mockResolvedValue(record), update: vi.fn() }, weeklyForecast: { findUnique: vi.fn().mockResolvedValue({ finalizedAt: options.finalized ? new Date() : null }) }, auditLog: { create: vi.fn() } };
+  const tx = { zonalConnection: { findUnique: vi.fn().mockResolvedValue(null) }, $queryRaw: vi.fn(), restaurant: { findUniqueOrThrow: vi.fn().mockResolvedValue({ currency: 'GBP' }) }, dailySales: { findUnique: vi.fn().mockResolvedValue(options.sale ?? null), create: vi.fn().mockResolvedValue({ id: 'sale' }), update: vi.fn().mockResolvedValue({ id: 'sale' }) }, zonalImport: { findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.id ? options.foreign ? null : record : options.prior ? record : null)), create: vi.fn().mockResolvedValue(record), update: vi.fn() }, weeklyForecast: { findUnique: vi.fn().mockResolvedValue({ _count:{days:7}, finalizedAt: options.finalized ? new Date() : null }) }, auditLog: { create: vi.fn() } };
   return { tx, record, prisma: { ...tx, $transaction: async (f: (t: unknown) => unknown) => f(tx) } as unknown as PrismaClient };
 }
 describe('sales import controls', () => {
@@ -80,7 +80,7 @@ describe('connection boundary', () => {
     expect(config.credentialsConfigured).toBe(true); expect(JSON.stringify(config)).not.toContain('private-');
     expect(zonalConfiguration('other').credentialsConfigured).toBe(false);
   });
-  it('fails closed for unverified extraction', async () => { await expect(zonalAdapter.extract(sample.branch, sample.date)).rejects.toThrow('not configured'); });
+  it('rejects unauthorised branch extraction before opening a browser', async () => { await expect(zonalAdapter.extract('cocotte',{username:'fixture',password:'fixture'},sample.branch,sample.date)).rejects.toThrow('not authorised'); });
   it('redacts failures and aborts timeouts without retries', async () => {
     await expect(safeProbe(async () => { throw new Error('private-password'); })).rejects.toThrow('Connection test failed.');
     let signal: AbortSignal | undefined;
