@@ -5,6 +5,8 @@ import { chromium,expect } from '@playwright/test';
 import { Pool } from 'pg';
 import { PrismaClient } from '../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import {londonToday,mondayOf,addDays} from '../src/lib/dates';
+import {formatGBP} from '../src/lib/money';
 import { createHash,randomBytes } from 'node:crypto';
 const base='http://localhost:3000';
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
@@ -25,7 +27,7 @@ try{
  await prisma.zonalSyncDay.count();
  console.log('PASS PostgreSQL connectivity, generated batch delegates and batch/day/preview relational query.');
  expect(await prisma.zonalConnection.count({where:{encryptedCredentials:{not:null}}})).toBeGreaterThan(0);
- const admin=(await pool.query('SELECT id FROM "User" WHERE role=$1 AND active=true LIMIT 1',['SUPER_USER'])).rows[0];
+ const admin=(await pool.query('SELECT id,"restaurantId" FROM "User" WHERE role=$1 AND active=true LIMIT 1',['SUPER_USER'])).rows[0];
  if(!admin)throw new Error('Existing Super User required.');
  const token=randomBytes(32).toString('hex');
  await pool.query('INSERT INTO "Session" (id,"tokenHash","userId","expiresAt") VALUES ($1,$2,$3,now()+interval \'5 minutes\')',[sessionId,createHash('sha256').update(token).digest('hex'),admin.id]);
@@ -47,7 +49,15 @@ try{
  for(const [path,heading] of [['/admin/integrations/zonal','Zonal Connect'],['/dashboard','Dashboard'],['/sales','Daily Sales'],['/admin/planning','Weekly Planning'],['/reports','Reports'],['/recipes','Recipes']]){
   const response=await page.goto(base+path);
   expect(response?.status()).toBe(200);
-  if(path==='/dashboard'){await expect(page.locator('h1.page-title')).toBeVisible();await expect(page.getByText('Here’s your kitchen update for this week.',{exact:true})).toBeVisible();}
+  if(path==='/dashboard'){
+   await expect(page.locator('h1.page-title')).toBeVisible();await expect(page.getByText('Here’s your kitchen update for this week.',{exact:true})).toBeVisible();
+   await expect(page.getByRole('heading',{name:'Weekly Sales Overview',exact:true})).toBeVisible();
+   const monday=mondayOf(londonToday());
+   const totals=await pool.query('SELECT COALESCE(sum("amountPence"),0)::text AS pence FROM "DailySales" WHERE "restaurantId"=$1 AND date BETWEEN $2::date AND $3::date',[admin.restaurantId,monday,addDays(monday,6)]);
+   const actual=await page.locator('[data-sales-kpi="net"]').innerText();
+   if(actual!==formatGBP(BigInt(totals.rows[0].pence)))throw new Error('Dashboard recorded net differs from canonical Daily Sales.');
+   console.log('PASS localhost dashboard Weekly Sales Overview total matches canonical Daily Sales for the selected current week.');
+  }
   else await expect(page.getByRole('heading',{name:heading,exact:true}).first()).toBeVisible();
   expect(await page.getByText('We couldn’t complete that request',{exact:false}).count()).toBe(0);
   if(path.includes('zonal')){

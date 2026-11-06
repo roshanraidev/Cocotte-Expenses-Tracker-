@@ -128,7 +128,7 @@ try{
  await batchCard.getByRole('button',{name:'Approve 2 selected days',exact:true}).click();
  await expect.poll(async()=>await prisma.dailySales.count()).toBe(3);
  await page.goto(base+'/dashboard?week='+monday);
- await expect(page.locator('[data-sales-source="Zonal"]')).toHaveCount(3);
+ await expect(page.locator('section.dashboard-sales [data-sales-source="Zonal"]')).toHaveCount(3);
  assert.deepEqual(await prisma.forecastDay.findMany({orderBy:{date:'asc'}}),forecastsBefore);
  assert.deepEqual(await approveBatch(prisma,actor,batchId,selected,false,'Idempotent test'),{approved:2,failed:0});
  assert.equal(await prisma.dailySales.count(),3);
