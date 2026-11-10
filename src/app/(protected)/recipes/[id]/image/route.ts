@@ -11,7 +11,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     Prisma.sql`
       SELECT r."imageMime", r."imageBytes"
       FROM "Recipe" r
-      JOIN "RecipeType" t ON t.id = r."typeId"
+      JOIN "RecipeType" t ON t.id = r."typeId" AND t."restaurantId" = r."restaurantId"
       WHERE r.id = ${id}
         AND r."restaurantId" = ${user.restaurantId}
         ${canViewHidden ? Prisma.empty : Prisma.sql`AND r.visible = true AND t.visible = true`}
@@ -20,14 +20,14 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   );
 
   const recipe = rows[0];
-  if (!recipe?.imageBytes) return new Response(null, { status: 404 });
+  if (!recipe?.imageBytes) return new Response(null, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
 
   const mime = recipe.imageMime || 'image/jpeg';
   const bytes = new Uint8Array(recipe.imageBytes);
   return new Response(bytes.buffer, {
     headers: {
       'Content-Type': mime,
-      'Cache-Control': 'private, max-age=3600',
+      'Cache-Control': 'private, no-store',
     },
   });
 }

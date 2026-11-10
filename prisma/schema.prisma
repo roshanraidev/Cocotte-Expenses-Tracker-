@@ -54,6 +54,7 @@ model Restaurant {
   packagingProducts PackagingProduct[]
   recipeTypes RecipeType[]
   recipes Recipe[]
+  recipeFeatures RecipeFeatureSettings?
   zonalSyncBatches ZonalSyncBatch[]
   zonalConnection ZonalConnection?
   zonalImports ZonalImport[]
@@ -489,8 +490,49 @@ model Recipe {
   suitability String @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  specials WeeklySpecial[]
+  components RecipeComponent[] @relation("RecipeComponents")
+  usedIn RecipeComponent[] @relation("ComponentRecipes")
+  @@unique([id, restaurantId])
   @@unique([restaurantId, typeId, name])
   @@index([restaurantId, visible, typeId, sortOrder])
+}
+
+
+model RecipeFeatureSettings {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  weeklySpecialsEnabled Boolean @default(false)
+}
+
+enum WeeklySpecialStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model WeeklySpecial {
+  id String @id @default(cuid())
+  restaurantId String
+  recipeId String
+  recipe Recipe @relation(fields: [recipeId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  status WeeklySpecialStatus @default(DRAFT)
+  startDate DateTime? @db.Date
+  endDate DateTime? @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([restaurantId, status])
+}
+
+model RecipeComponent {
+  restaurantId String
+  recipeId String
+  componentId String
+  recipe Recipe @relation("RecipeComponents", fields: [recipeId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  component Recipe @relation("ComponentRecipes", fields: [componentId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  position Int @default(0)
+  @@id([recipeId, componentId])
+  @@index([restaurantId, recipeId, position])
+  @@index([componentId])
 }
 
 // Daily-sales-only pilot; credentials are never stored here.
