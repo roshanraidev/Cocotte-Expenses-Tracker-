@@ -1,5 +1,6 @@
+import {can} from '@/lib/permissions';
 import Link from 'next/link';
-import { requireUser } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { addDays, dateKey, londonToday, mondayOf, dayLabel } from '@/lib/dates';
 import { selectedWeek } from '@/lib/week-data';
@@ -12,7 +13,7 @@ import { percentLabel } from '@/lib/targets';
 import { ratioBps, ratioLabel } from '@/lib/finance';
 import { WeekNavigation } from '@/components/week-navigation';
 import { OperationForm } from '@/components/operation-form';
-import { ReportChart, PrintReport } from '@/components/report-chart';
+import { ReportChart } from '@/components/report-chart';
 import { LiveRefresh } from '@/components/live-refresh';
 const currency=(v:bigint|null|undefined)=>v==null?'—':formatGBP(v);
 const plot=(v:bigint)=>Number(v)/100; // Visual coordinates only; displayed values and calculations remain exact.
@@ -81,7 +82,7 @@ function ExecutiveWeeklyReport({monday,data,state,supplierData,history}:{monday:
   </article>;
 }
 export default async function Reports({searchParams}:{searchParams:Promise<{week?:string|string[];tab?:string;month?:string;supplier?:string}>}) {
-  const user=await requireUser();const today=londonToday();const query=await searchParams;const monday=selectedWeek(query.week,today);
+  const user=await requirePermission('reports.view');const today=londonToday();const query=await searchParams;const monday=selectedWeek(query.week,today);
   const tab=['sales','purchasing','suppliers','history'].includes(query.tab??'')?query.tab!:'sales';
   const data=await financialWeek(user.restaurantId,monday,today);
   const state=reportStatus({monday,today,recordedDays:data.sales?.recordedDays??0,opening:data.opening,closing:data.closing,purchasesConfirmed:data.purchasesComplete,outstandingOrders:data.orders.length});
@@ -98,7 +99,7 @@ export default async function Reports({searchParams}:{searchParams:Promise<{week
   const events=tab==='purchasing'&&data.week?await db().auditLog.findMany({where:{restaurantId:user.restaurantId,entity:'WeeklyForecast',entityId:data.week.id,action:{in:['WEEK_FINALIZED','WEEK_REOPENED']}},include:{actor:{select:{name:true}}},orderBy:{createdAt:'desc'}}):[];
   const exportQuery=new URLSearchParams({week:monday,tab,...(supplierData?.month?{month:supplierData.month}:{}),...(query.supplier?{supplier:query.supplier}:{})});
   const costRows=[{label:'Weekly target',value:data.target.targetBps/100,valueExact:percentLabel(data.target.targetBps)},...(data.finance?.projectedBps==null?[]:[{label:'Projected',value:Number(data.finance.projectedBps)/100,valueExact:ratioLabel(data.finance.projectedBps)}]),...(actualBps===null?[]:[{label:state.status==='Final'?'Final actual':'Provisional actual',value:Number(actualBps)/100,valueExact:ratioLabel(actualBps)}])];
-  return <><LiveRefresh/><header className="report-heading mb-5 flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Cocotte financial intelligence</p><h1 className="page-title mb-2!">Reports</h1><p className="text-sm text-stone-500">{dayLabel(monday)} – {dayLabel(addDays(monday,6))} · GBP · excluding VAT</p><span className="badge mt-3">{state.status}</span></div><div className="report-actions flex flex-wrap gap-2"><Link className="btn" href={`/reports/export?${exportQuery}`}>Export to CSV</Link><PrintReport/></div></header>
+  return <><LiveRefresh/><header className="report-heading mb-5 flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Cocotte financial intelligence</p><h1 className="page-title mb-2!">Reports</h1><p className="text-sm text-stone-500">{dayLabel(monday)} – {dayLabel(addDays(monday,6))} · GBP · excluding VAT</p><span className="badge mt-3">{state.status}</span></div>{can(user,'reports.export')&&<div className="report-actions flex flex-wrap gap-2"><Link className="btn" href={`/reports/export?${exportQuery}`}>Export to CSV</Link><a className="btn btn-secondary" href={`/reports/export?${new URLSearchParams({week:monday,format:'pdf'})}`} download={`Cocotte-Weekly-Report-${monday}.pdf`}>Download Report</a></div>}</header>
     <div className="report-actions"><WeekNavigation monday={monday} path="/reports" current={mondayOf(today)} query={{tab}}/></div>
     <nav className="report-tabs mb-6 flex flex-wrap gap-2" aria-label="Report sections">{[['sales','SALES'],['purchasing','FOOD PURCHASING'],['suppliers','SUPPLIERS'],['history','WEEKLY HISTORY']].map(([key,label])=><Link key={key} href={`?week=${monday}&tab=${key}`} aria-current={tab===key?'page':undefined} className={`rounded-lg px-4 py-3 text-xs font-semibold ${tab===key?'bg-[#214a37] text-white':'bg-white text-[#214a37]'}`}>{label}</Link>)}</nav>
     {tab==='sales'&&<><Summary rows={[[ 'Original weekly forecast',currency(data.sales?.originalPence)],['Actual sales recorded to date',currency(data.sales?.actualPence)],['Updated projected weekly sales',currency(data.sales?.projectedPence)],['Variance · recorded days',currency(data.sales?.variancePence)]]}/><section className="card"><h2 className="section-title">Cumulative sales performance</h2><p className="mb-4 text-xs text-stone-500">£ net sales · actual points appear only for recorded days, including recorded zero sales.</p><ReportChart kind="sales" rows={cumulative.map(d=>({label:dayLabel(d.date).slice(0,3),forecast:plot(d.cumulativeForecast),forecastExact:currency(d.cumulativeForecast),actual:d.cumulativeActual===null?null:plot(d.cumulativeActual),actualExact:currency(d.cumulativeActual)}))}/><div className="overflow-x-auto"><table className="data-table"><thead><tr>{['Day','Forecast net sales','Actual net sales','Daily variance','Cumulative forecast','Cumulative actual'].map(s=><th key={s}>{s}</th>)}</tr></thead><tbody>{cumulative.map(d=><tr key={d.date}><td>{dayLabel(d.date)}</td><td>{currency(d.originalPence)}</td><td>{currency(d.actualPence)}</td><td>{d.actualPence===null?'—':currency(d.actualPence-d.originalPence)}</td><td>{currency(d.cumulativeForecast)}</td><td>{currency(d.cumulativeActual)}</td></tr>)}</tbody></table></div>{!cumulative.length&&<p className="py-5 text-sm">No forecast exists for the selected week.</p>}</section></>}

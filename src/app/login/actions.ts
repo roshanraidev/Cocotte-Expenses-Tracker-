@@ -1,4 +1,6 @@
 'use server';
+import {resolveAccess} from '@/lib/access';
+import {permittedHome} from '@/lib/navigation';
 import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
 import { startSession, endSession } from '@/lib/auth';
@@ -27,7 +29,9 @@ export async function login(_previous: { error: string }, form: FormData) {
   const valid = await verifyPassword(user?.passwordHash ?? await dummyHash, password);
   if (!user || !user.active || !valid) return { error: 'Email or password is incorrect.' };
   await startSession(user.id);
+  await db().user.update({where:{id:user.id},data:{lastLoginAt:new Date()}});
+  await db().auditLog.create({data:{restaurantId:user.restaurantId,actorId:user.id,action:'USER_SIGNED_IN',entity:'User',entityId:user.id,after:{signedIn:true}}});
   // Successful sign-ins also count toward the short throttle window.
-  redirect('/dashboard');
+  redirect(permittedHome(await resolveAccess(db(),user)));
 }
 export async function logout() { await endSession(); redirect('/login'); }

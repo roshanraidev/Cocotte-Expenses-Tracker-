@@ -1,8 +1,16 @@
-import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
-import { db } from '@/lib/db';
-export default async function AdminPage() {
-  const user = await requireAdmin();
-  const logs = await db().auditLog.findMany({ where: { restaurantId: user.restaurantId }, orderBy: { createdAt: 'desc' }, take: 20, include: { actor: { select: { name: true } } } });
-  return <><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-stone-500">Super User workspace</p><h1 className="mb-7 text-3xl font-semibold">Administration</h1><section className="card mb-6"><h2 className="text-lg font-semibold">Food cost targets</h2><p className="my-3 text-sm text-stone-500">Manage default and weekly targets with an audited history.</p><Link className="btn" href="/admin/food-cost">Food Cost Settings</Link></section><section className="card mb-6"><h2 className="text-lg font-semibold">Sales planning</h2><p className="my-3 text-sm text-stone-500">Create weekly forecasts and revise projections while preserving original figures.</p><Link className="btn" href="/admin/forecasts">Manage forecasts</Link></section><section className="card"><h2 className="text-lg font-semibold">Restaurant accounts</h2><p className="my-3 text-sm text-stone-500">Create Chef and Super User accounts. Deactivating a Chef revokes their sessions immediately.</p><Link className="btn" href="/admin/users">Manage users</Link></section><section className="card mt-6"><h2 className="mb-5 text-lg font-semibold">Recent audit log</h2>{!logs.length && <p className="text-sm text-stone-500">No changes recorded yet.</p>}<ul className="divide-y divide-stone-100">{logs.map(log => <li className="flex flex-wrap justify-between gap-2 py-4 text-sm" key={log.id}><div><p className="font-medium">{log.action.replaceAll('_', ' ')}</p><p className="mt-1 text-xs text-stone-500">{log.actor?.name ?? 'System'} · {log.entity}</p></div><time className="text-xs text-stone-500">{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(log.createdAt)}</time></li>)}</ul></section></>;
+import {requireAdmin} from '@/lib/auth';
+import {db} from '@/lib/db';
+import {addDays,dateKey,dateValue,londonToday} from '@/lib/dates';
+import {AdministratorDashboard} from '@/components/management/administrator';
+import {LiveRefresh} from '@/components/live-refresh';
+function recentPreviewStart(){return new Date(Date.now()-30*60*1000);}
+export default async function AdminPage(){
+ const user=await requireAdmin(),prisma=db(),today=londonToday(),restaurantId=user.restaurantId;
+ const [total,active,users,previews,logs,invoices]=await Promise.all([
+  prisma.supplier.count({where:{restaurantId}}),prisma.supplier.count({where:{restaurantId,active:true}}),prisma.user.count({where:{restaurantId,active:true}}),
+  prisma.zonalImport.count({where:{restaurantId,status:'PREVIEW',createdAt:{gte:recentPreviewStart()}}}),
+  prisma.auditLog.findMany({where:{restaurantId},orderBy:{createdAt:'desc'},take:20,include:{actor:{select:{name:true}}}}),
+  prisma.purchaseInvoice.findMany({where:{restaurantId,confirmedAt:{not:null},voidedAt:null,accountingDate:{gte:dateValue(addDays(today,-89)),lte:dateValue(today)}},select:{amountPence:true,accountingDate:true,supplier:{select:{name:true}}}}),
+ ]);
+ return <><LiveRefresh/><AdministratorDashboard name={user.name} total={total} active={active} users={users} previews={previews} today={today} events={logs.map(l=>({id:l.id,action:l.action,entity:l.entity,actor:l.actor?.name??'System',date:l.createdAt.toISOString()}))} invoices={invoices.map(i=>({supplier:i.supplier.name,date:dateKey(i.accountingDate),amount:i.amountPence.toString()}))}/></>;
 }

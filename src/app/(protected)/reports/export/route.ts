@@ -1,4 +1,6 @@
-import { requireUser } from '@/lib/auth';
+import { loadWeeklyPdfData } from '@/lib/weekly-pdf-data';
+import { renderWeeklyPdf } from '@/lib/weekly-pdf';
+import { requirePermission } from '@/lib/auth';
 import { addDays, dateKey, londonToday } from '@/lib/dates';
 import { selectedWeek } from '@/lib/week-data';
 import { financialWeek } from '@/lib/financial-data';
@@ -7,8 +9,14 @@ import { cumulativeSales, reportStatus } from '@/lib/reporting';
 import { poundsInput } from '@/lib/money';
 import { percentInput } from '@/lib/targets';
 import { ratioBps, ratioLabel } from '@/lib/finance';
+export const runtime = 'nodejs';
 export async function GET(request:Request) {
- const user=await requireUser();const today=londonToday();const query=new URL(request.url).searchParams;const monday=selectedWeek(query.get('week')??undefined,today);const tab=query.get('tab')??'sales';
+ const user=await requirePermission('reports.export');const today=londonToday();const query=new URL(request.url).searchParams;const monday=selectedWeek(query.get('week')??undefined,today);const tab=query.get('tab')??'sales';
+ if(query.get('format')==='pdf') {
+  const report=await loadWeeklyPdfData(user.restaurantId,monday,today);
+  const pdf=await renderWeeklyPdf(report);
+  return new Response(pdf.buffer as ArrayBuffer,{headers:{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="Cocotte-Weekly-Report-${monday}.pdf"`,'Cache-Control':'private, no-store'}});
+ }
  const money=(v:bigint|null|undefined)=>v==null?'':poundsInput(v);
  let rows:string[][]=[];
  if(tab==='suppliers'){

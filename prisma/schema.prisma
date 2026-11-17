@@ -12,6 +12,16 @@ enum Role {
   SUPER_USER
 }
 
+enum AccessRole {
+  SUPER_USER
+  ADMINISTRATOR
+  MANAGER
+  HEAD_CHEF
+  SOUS_CHEF
+  KITCHEN_STAFF
+  VIEWER
+}
+
 enum OrderStatus {
   DRAFT
   PLACED
@@ -32,11 +42,16 @@ enum AdjustmentKind {
 }
 
 model Restaurant {
+ salesJobs ZonalSalesJob[]
+ zonalDeliveryPreviews ZonalDeliveryPreview[]
+ zonalDeliveryImports ZonalDeliveryImport[]
+
   id          String              @id @default("restaurant")
   name        String
   currency    String              @default("GBP")
   timezone    String              @default("Europe/London")
   createdAt   DateTime            @default(now())
+  rolePolicies AccessRolePolicy[]
   targets     WeeklyTarget[]
   defaults    TargetDefault[]
   settings    RestaurantSettings?
@@ -54,6 +69,12 @@ model Restaurant {
   packagingProducts PackagingProduct[]
   recipeTypes RecipeType[]
   recipes Recipe[]
+  recipeFeatures RecipeFeatureSettings?
+  zonalSyncBatches ZonalSyncBatch[]
+  foodCostPeriods FoodCostPeriod[]
+  foodCostPreviews FoodCostPreview[]
+  zonalConnection ZonalConnection?
+  zonalImports ZonalImport[]
 }
 
 model RestaurantSettings {
@@ -66,6 +87,10 @@ model RestaurantSettings {
 }
 
 model User {
+ salesJobs ZonalSalesJob[]
+ zonalDeliveryPreviews ZonalDeliveryPreview[]
+ zonalDeliveryImports ZonalDeliveryImport[]
+
   id           String     @id @default(cuid())
   restaurantId String     @default("restaurant")
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
@@ -73,9 +98,17 @@ model User {
   email        String     @unique
   passwordHash String
   role         Role       @default(CHEF)
+  accessRole AccessRole?
+  permissionOverrides Json?
+  lastLoginAt DateTime?
+  passwordResets PasswordReset[]
   active       Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  zonalImports ZonalImport[]
+  zonalSyncBatches ZonalSyncBatch[]
+  foodCostApprovals FoodCostPeriod[]
+  foodCostPreviews FoodCostPreview[]
   sessions     Session[]
   auditLogs    AuditLog[]
 
@@ -151,6 +184,8 @@ model DailySales {
 }
 
 model Supplier {
+ zonalDeliveryImports ZonalDeliveryImport[]
+
   id               String            @id @default(cuid())
   restaurantId     String            @default("restaurant")
   restaurant       Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
@@ -225,6 +260,8 @@ model SupplierOrderItem {
 }
 
 model PurchaseInvoice {
+ zonalDeliveryImport ZonalDeliveryImport?
+
   id             String            @id @default(cuid())
   restaurantId   String            @default("restaurant")
   restaurant     Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
@@ -473,6 +510,7 @@ model Recipe {
   type RecipeType @relation(fields: [typeId], references: [id], onDelete: Restrict)
   name String
   visible Boolean @default(true)
+  archivedAt DateTime?
   sortOrder Int @default(0)
   imageMime String?
   imageBytes Bytes?
@@ -484,6 +522,252 @@ model Recipe {
   suitability String @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  specials WeeklySpecial[]
+  components RecipeComponent[] @relation("RecipeComponents")
+  usedIn RecipeComponent[] @relation("ComponentRecipes")
+  @@unique([id, restaurantId])
   @@unique([restaurantId, typeId, name])
   @@index([restaurantId, visible, typeId, sortOrder])
+  @@index([restaurantId, archivedAt, typeId, sortOrder])
+}
+
+
+model RecipeFeatureSettings {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  weeklySpecialsEnabled Boolean @default(false)
+}
+
+enum WeeklySpecialStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model WeeklySpecial {
+  id String @id @default(cuid())
+  restaurantId String
+  recipeId String
+  recipe Recipe @relation(fields: [recipeId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  status WeeklySpecialStatus @default(DRAFT)
+  startDate DateTime? @db.Date
+  endDate DateTime? @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([restaurantId, status])
+}
+
+model RecipeComponent {
+  restaurantId String
+  recipeId String
+  componentId String
+  recipe Recipe @relation("RecipeComponents", fields: [recipeId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  component Recipe @relation("ComponentRecipes", fields: [componentId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  position Int @default(0)
+  @@id([recipeId, componentId])
+  @@index([restaurantId, recipeId, position])
+  @@index([componentId])
+}
+
+// Daily-sales-only pilot; credentials are never stored here.
+model ZonalImport {
+  syncDays ZonalSyncDay[]
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  date DateTime @db.Date
+  branch String
+  source String
+  status String @default("PREVIEW")
+  payload Json
+  fingerprint String
+  salesVersion Int
+  previousPence BigInt?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, date, fingerprint])
+}
+
+// One encrypted connection per restaurant. Disconnect removes the envelope;
+// the row retains revision/cooldown metadata to invalidate in-flight checks.
+model ZonalConnection {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  branch String
+  encryptedCredentials String?
+  revision Int @default(1)
+  loginVerifiedAt DateTime?
+  reportAccessVerifiedAt DateTime?
+  lastAttemptAt DateTime?
+  lastResultCode String?
+  updatedAt DateTime @updatedAt
+}
+
+// Manual batch jobs only; credentials/report bodies are never duplicated here.
+model ZonalSyncBatch {
+  id String @id @default(cuid())
+  restaurantId String
+  restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+  actorId String
+  actor User @relation(fields:[actorId],references:[id],onDelete:Restrict)
+  branch String
+  from DateTime @db.Date
+  to DateTime @db.Date
+  status String @default("RUNNING")
+  connectionRevision Int
+  heartbeatAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  finishedAt DateTime?
+  days ZonalSyncDay[]
+  @@index([restaurantId,createdAt])
+}
+
+model ZonalSyncDay {
+  id String @id @default(cuid())
+  batchId String
+  batch ZonalSyncBatch @relation(fields:[batchId],references:[id],onDelete:Restrict)
+  date DateTime @db.Date
+  status String @default("PENDING")
+  attempted Boolean @default(false)
+  errorCode String?
+  approvalError String?
+  previewId String?
+  preview ZonalImport? @relation(fields:[previewId],references:[id],onDelete:Restrict)
+  checkedAt DateTime?
+  @@unique([batchId,date])
+}
+
+// Separate reporting ledger. Never feeds purchasing allowance.
+model FoodCostPeriod {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ from DateTime @db.Date
+ to DateTime @db.Date
+ category String @default("FOOD")
+ payload Json
+ fingerprint String
+ version Int @default(1)
+ approvedById String
+ approvedBy User @relation(fields:[approvedById],references:[id],onDelete:Restrict)
+ approvedAt DateTime @default(now())
+ previews FoodCostPreview[]
+ @@unique([restaurantId,from,to,category])
+}
+model FoodCostPreview {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ actorId String
+ actor User @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ from DateTime @db.Date
+ to DateTime @db.Date
+ category String @default("FOOD")
+ payload Json
+ fingerprint String
+ expectedVersion Int
+ status String @default("PREVIEW")
+ createdAt DateTime @default(now())
+ completedAt DateTime?
+ periodId String?
+ period FoodCostPeriod? @relation(fields:[periodId],references:[id],onDelete:Restrict)
+ @@index([restaurantId,createdAt])
+}
+
+model ZonalDeliveryPreview {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ actorId String
+ actor User @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ from DateTime @db.Date
+ to DateTime @db.Date
+ connectionRevision Int
+ payload Json
+ createdAt DateTime @default(now())
+ expiresAt DateTime
+ status String @default("PREVIEW")
+ result Json?
+ @@index([restaurantId,createdAt])
+}
+model ZonalDeliveryImport {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ supplierId String
+ supplier Supplier @relation(fields:[supplierId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ purchaseId String @unique
+ purchase PurchaseInvoice @relation(fields:[purchaseId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ actorId String
+ actor User @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:NoAction)
+ location String
+ deliveryId String
+ documentKey String
+ fingerprint String
+ createdAt DateTime @default(now())
+ @@unique([restaurantId,location,deliveryId])
+ @@unique([restaurantId,supplierId,documentKey])
+}
+
+model AccessRolePolicy {
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ role AccessRole
+ permissions Json
+ updatedAt DateTime @updatedAt
+ @@id([restaurantId,role])
+}
+model PasswordReset {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ tokenHash String @unique
+ expiresAt DateTime
+ consumedAt DateTime?
+ createdAt DateTime @default(now())
+ @@index([userId,expiresAt])
+}
+
+// PostgreSQL-backed, manually requested sales work. No credentials are stored here.
+model ZonalSalesJob {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ actorId String
+ actor User @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ kind String
+ phase String @default("FETCH")
+ status String @default("QUEUED")
+ from DateTime @db.Date
+ to DateTime @db.Date
+ latestAvailable DateTime? @db.Date
+ leaseToken String?
+ leaseUntil DateTime?
+ activeBatchId String?
+ approvalReason String?
+ lastError String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ days ZonalSalesJobDay[]
+ @@index([status,leaseUntil])
+ @@index([restaurantId,createdAt])
+}
+model ZonalSalesJobDay {
+ id String @id @default(cuid())
+ jobId String
+ job ZonalSalesJob @relation(fields:[jobId],references:[id],onDelete:Restrict)
+ date DateTime @db.Date
+ status String @default("PENDING")
+ previewId String?
+ fingerprint String?
+ reason String?
+ processedAt DateTime?
+ @@unique([jobId,date])
+ @@index([previewId])
+}
+model ZonalSalesWorker {
+ id String @id
+ heartbeatAt DateTime @default(now())
 }

@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test:smoke": "tsx scripts/smoke.ts",
-    "test:finance": "node --conditions=react-server --import tsx scripts/financial-smoke.ts"
+    "test:finance": "node --conditions=react-server --import tsx scripts/financial-smoke.ts",
+    "worker:sales": "node --conditions=react-server --import tsx scripts/workers/sales.ts"
   },
   "keywords": [],
   "author": "",
@@ -32,7 +33,9 @@
     "lucide-react": "^1.47.0",
     "next": "^16.3.5",
     "pdfjs-dist": "^6.3.289",
+    "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
+    "playwright": "1.63.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^3.10.1",
@@ -46,6 +49,7 @@
     "@prisma/dev": "^0.24.17",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.2",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

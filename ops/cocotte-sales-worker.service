@@ -1,0 +1,20 @@
+# Template for the documented Linux Node/PostgreSQL deployment. Adjust paths/user.
+[Unit]
+Description=Cocotte durable Zonal sales worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cocotte
+WorkingDirectory=/srv/cocotte
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/cocotte/worker.env
+ExecStart=/usr/bin/npm run worker:sales
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

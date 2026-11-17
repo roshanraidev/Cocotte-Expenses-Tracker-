@@ -1,11 +1,11 @@
-import { requireAdmin } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { londonToday, mondayOf } from '@/lib/dates';
 import { loadWeek, selectedWeek } from '@/lib/week-data';
 import { poundsInput } from '@/lib/money';
 import { ForecastForm } from '@/components/forecast-form';
 import { WeekNavigation } from '@/components/week-navigation';
 export default async function Forecasts({ searchParams }: { searchParams: Promise<{ week?: string | string[] }> }) {
-  const user = await requireAdmin();
+  const user = await requirePermission('settings.view');
   const today = londonToday();
   const monday = selectedWeek((await searchParams).week, today);
   const { week, days } = await loadWeek(user.restaurantId, monday);

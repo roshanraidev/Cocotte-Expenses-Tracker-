@@ -1,4 +1,5 @@
 import 'server-only';
+import {can} from './permissions';
 import type { Prisma, PrismaClient } from '@/generated/prisma/client';
 import { addDays, dateValue, londonToday, mondayOf } from './dates';
 import { targetSchema } from './targets';
@@ -13,7 +14,7 @@ export async function resolveTarget(tx: Reader, restaurantId: string, monday: st
   return { id: '', weekStart: dateValue(monday), targetBps, originalBps: targetBps, source: 'DEFAULT', version: 0, updatedAt: fallback?.createdAt ?? null };
 }
 export async function saveTarget(prisma: PrismaClient, actor: SalesActor, raw: unknown, isDefault = false, today = londonToday()) {
-  if (actor.role !== 'SUPER_USER') throw new TargetError('Only Super Users can change food cost targets.');
+  if (!can(actor,'settings.edit')) throw new TargetError('Only Super Users can change food cost targets.');
   const parsed = targetSchema.safeParse(raw);
   if (!parsed.success) throw new TargetError(parsed.error.issues[0].message);
   const input = parsed.data;

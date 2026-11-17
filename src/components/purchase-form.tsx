@@ -1,4 +1,5 @@
 'use client';
+import {usePermission} from './permission-provider';
 import Link from 'next/link';
 import {useActionState,useId,useState} from 'react';
 import {activePurchaseSuppliers,savePurchase} from '@/app/(protected)/orders/actions';
@@ -14,7 +15,8 @@ export function PurchaseForm({suppliers:initialSuppliers,today,submissionKey}:{s
     if(result.success)setValues({supplierId:'',invoiceNumber:'',orderDate:String(form.get('orderDate')),deliveryDate:String(form.get('deliveryDate')),amount:''});
     return result;
   },{error:'',success:'',submissionKey,savedWeek:''});
-  return <form action={action} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+  const createAllowed=usePermission('purchasing.create'),approveAllowed=usePermission('purchasing.approve');if(!createAllowed||!approveAllowed)return null;
+ return <form action={action} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
     <input type="hidden" name="submissionKey" value={state.submissionKey}/>
     <div><label htmlFor={`${id}-supplier`}>Supplier name</label><select id={`${id}-supplier`} name="supplierId" value={values.supplierId} required disabled={pending} onChange={e=>setValues({...values,supplierId:e.target.value})} onFocus={()=>{void activePurchaseSuppliers().then(rows=>{setRefresh({base,rows});setRefreshError('');}).catch(()=>setRefreshError('Could not refresh suppliers. Reload this page to try again.'));}}><option value="" disabled>Select supplier…</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
     <div><label htmlFor={`${id}-invoice`}>Invoice number</label><input id={`${id}-invoice`} name="invoiceNumber" value={values.invoiceNumber} onChange={e=>setValues({...values,invoiceNumber:e.target.value})} maxLength={100} placeholder="e.g. INV-12345" required readOnly={pending}/></div>

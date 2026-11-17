@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { addDays, londonToday, mondayOf, dayLabel } from '@/lib/dates';
 import { resolveTarget } from '@/lib/target-service';
@@ -8,7 +8,7 @@ import { selectedWeek } from '@/lib/week-data';
 import { WeekNavigation } from '@/components/week-navigation';
 import { TargetForm } from '@/components/target-form';
 export default async function FoodCostSettings({ searchParams }: { searchParams: Promise<{ week?: string | string[]; history?: string }> }) {
-  const user = await requireAdmin(); const today = londonToday(); const current = mondayOf(today);
+  const user = await requirePermission('settings.view'); const today = londonToday(); const current = mondayOf(today);
   const query = await searchParams;
   const historyPage = query.history && /^\d{1,5}$/.test(query.history) ? Math.max(0, Number(query.history)) : 0;
   const monday = selectedWeek(query.week, today);
