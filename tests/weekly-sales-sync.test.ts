@@ -1,0 +1,22 @@
+import {describe,it,expect,vi,beforeEach} from 'vitest';
+vi.mock('server-only',()=>({}));
+const mocks=vi.hoisted(()=>({auth:vi.fn(),batch:vi.fn(),today:vi.fn()}));
+vi.mock('@/lib/auth',()=>({requireAdmin:mocks.auth}));
+vi.mock('@/app/(protected)/admin/integrations/zonal/batch-actions',()=>({syncSelectedDates:mocks.batch}));
+vi.mock('@/lib/dates',async original=>({...await original<typeof import('@/lib/dates')>(),londonToday:mocks.today}));
+import {weeklySyncRange,weeklySyncDates} from '@/lib/zonal/weekly-range';
+import {syncWeeklyNetSales} from '@/app/(protected)/dashboard/weekly-sync-action';
+const actor={id:'admin',restaurantId:'restaurant',role:'SUPER_USER',permissions:['sales.view','dashboard.view']};
+beforeEach(()=>{vi.clearAllMocks();mocks.auth.mockResolvedValue(actor);mocks.today.mockReturnValue('2026-11-17');mocks.batch.mockResolvedValue({error:'',message:'Original batch started'});});
+describe('selected-week net sales sync',()=>{
+ it('fetches the selected historical Monday–Sunday, not the current week',()=>{expect(weeklySyncRange('2026-11-02','2026-11-17').dates).toEqual(['2026-11-02','2026-11-03','2026-11-04','2026-11-05','2026-11-06','2026-11-07','2026-11-08']);});
+ it('excludes today and future days from the selected current week',()=>{expect(weeklySyncRange('2026-11-16','2026-11-17').dates).toEqual(['2026-11-16']);});
+ it('explains an empty Monday or future week',()=>{expect(weeklySyncRange('2026-11-16','2026-11-16').dates).toEqual([]);expect(weeklySyncRange('2026-11-23','2026-11-17').dates).toEqual([]);});
+ it('preserves London business dates across DST and year boundaries',()=>{expect(weeklySyncRange('2026-10-19','2026-11-17').dates.at(-1)).toBe('2026-10-25');expect(weeklySyncRange('2025-12-29','2026-11-17').dates.at(-1)).toBe('2026-01-04');});
+ it('keeps recent corrections bounded without downloading intervening historical dates',()=>{const r=weeklySyncDates('2022-11-21','2026-11-17',31);expect(r.dates).toHaveLength(31);expect(r.dates).toContain('2022-11-21');expect(r.dates).toContain('2026-11-16');expect(r.dates).not.toContain('2024-01-01');});
+ it('rejects malformed dates and non-Mondays',()=>{expect(()=>weeklySyncRange('2026-11-17','2026-11-17')).toThrow();expect(()=>weeklySyncRange('2026-02-30','2026-11-17')).toThrow();});
+ it('delegates to the original action with the selected week explicitly',async()=>{expect(await syncWeeklyNetSales('2026-11-02')).toEqual({error:'',message:'Original batch started'});const dates=mocks.batch.mock.calls[0][0] as string[];expect(dates.slice(0,7)).toEqual(weeklySyncRange('2026-11-02','2026-11-17').dates);expect(dates).toContain('2026-11-16');expect(dates).not.toContain('2026-11-09');expect(dates).toHaveLength(14);});
+ it('passes the original connection/busy errors back without retrying',async()=>{mocks.batch.mockResolvedValue({error:'A sync is already running for this restaurant.',message:''});expect((await syncWeeklyNetSales('2026-11-02')).error).toContain('already running');expect(mocks.batch).toHaveBeenCalledTimes(1);});
+ it('does not invoke the source workflow for a future week',async()=>{expect((await syncWeeklyNetSales('2026-11-23')).error).toContain('No completed');expect(mocks.batch).not.toHaveBeenCalled();});
+ it('preserves Super User and sales-view authorization',async()=>{mocks.auth.mockRejectedValue(new Error('Denied'));await expect(syncWeeklyNetSales('2026-11-02')).rejects.toThrow('Denied');expect(mocks.batch).not.toHaveBeenCalled();mocks.auth.mockResolvedValue({...actor,permissions:['dashboard.view']});await expect(syncWeeklyNetSales('2026-11-02')).rejects.toThrow('permission');expect(mocks.batch).not.toHaveBeenCalled();});
+});

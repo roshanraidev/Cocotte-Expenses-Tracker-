@@ -206,3 +206,61 @@ Commands:
 - node --conditions=react-server --import tsx scripts/zonal/batch-fetch-preview.ts FROM TO is an explicitly invoked AUTHORISED LIVE read-only verification. It creates/reuses previews only and asserts DailySales records are unchanged. Do not run it merely as a routine unit test.
 
 **Live verification:** One authenticated batch session fetched 3 and 4 November 2026 for 003 – Parsons Green. Both validated gross, discounts, VAT, net, food, drink, specials, covers and transactions, and both matched existing approved imports (Unchanged). No real sales were approved or modified during this implementation. Other dates and branches have not been verified by this batch test.
+
+## Official Daily Sales duplicate protection
+
+The canonical ownership key is (restaurantId, business date), represented by
+DailySales.restaurantId and DailySales.date (PostgreSQL DATE, both NOT NULL).
+There is no additional sales workspace/scope column in this model. Packaging
+does not create a separate DailySales ownership key.
+
+The original migration already creates the valid PostgreSQL unique index:
+
+    CREATE UNIQUE INDEX "DailySales_restaurantId_date_key"
+    ON public."DailySales" USING btree ("restaurantId", date);
+
+Do not add another conflicting constraint. The read-only
+scripts/daily-sales-integrity.ts checks existing duplicate groups, index
+uniqueness/validity and non-null date/restaurant columns. The live local check
+found zero duplicate groups; no migration, deletion or data merge was needed.
+
+Both manual entry and Zonal approval lock Restaurant, RestaurantSettings and
+the affected WeeklyForecast in that order before reading/writing canonical
+sales. Corrections update the existing unique restaurant/date record with an
+expected-version condition, increment the version and write the before/after
+audit in the same transaction. New sales use create; the unique index rejects
+any duplicate even if an external writer bypasses application locks. No
+automatic retry can overwrite a later version. Weekly finalization and
+forecast requirements still apply to all financial writes.
+
+Exact replays return Already Imported without changing DailySales, its version
+or financial audit history. Matching approved single-day reports reuse the
+existing import reference. A matching manual net amount is skipped without
+claiming that unavailable department details were imported. Where a current
+Zonal import owns the sales revision, the complete canonical report fingerprint
+also detects changed departments/counts even when net sales are unchanged.
+
+Corrections require Super User authority, a fresh version, explicit correction
+submission/consent and a nonblank audit reason. The preview shows the existing
+official net alongside the report values. The UI uses New, Already Imported,
+Correction Required, Blocked and Approved. A batch rechecks each date and
+reports skipped dates separately from approved dates; a concurrent user's
+matching save never becomes a false approval.
+
+financialWeek and the existing dashboard/report queries read only canonical
+DailySales. ZonalImport previews and ZonalSyncDay progress records never add to
+official sales totals. Original/revised forecasts and purchasing formulas are
+unchanged.
+
+Verification uses synthetic data in an isolated PostgreSQL cluster:
+scripts/zonal/approval-dashboard-check.ts exercises direct P2002 duplicate
+rejection, simultaneous manual/Zonal creation, concurrent and repeated
+approvals, manual retries, same-ID corrections and audit, historical reasons,
+foreign restaurant denial, partial batch success and canonical financial
+totals. It does not modify the restaurant database or access Zonal.
+
+## Dashboard historical sales and daily sync
+
+The previous manual saved-plan/seven-day-click workflow has been replaced by a durable PostgreSQL queue and supervised Node worker. Use **Import All Historical Sales**, then one explicit bulk approval for eligible reports. The chart remains visible throughout. See [durable sales jobs](zonal-sales-jobs.md) for deployment, safety, daily incremental sync and verification details.
+
+Live read-only Financial Detail verification found dates **2022-11-19** through **2026-11-12**, and validated reports at both endpoints. Intermediate dates are not assumed valid. No real multi-year backfill has been automatically approved during development.

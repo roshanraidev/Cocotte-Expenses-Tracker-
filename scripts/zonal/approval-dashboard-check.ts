@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { hashPassword } from '../../src/lib/password';
-import { saveWeeklyForecast } from '../../src/lib/sales-service';
+import { saveWeeklyForecast,saveActualSales } from '../../src/lib/sales-service';
 import { runOperation } from '../../src/lib/operations';
 import { resolveImport,fingerprint } from '../../src/lib/zonal/service';
 import { previewAssessment } from '../../src/lib/zonal/approval-data';
@@ -76,7 +76,7 @@ try{
  const errors:string[]=[];page.on('pageerror',()=>errors.push('Browser runtime error'));
  await page.goto(base+'/login');await page.getByLabel('Email address').fill('zonal-test@example.test');await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Sign in to your kitchen'}).click();await expect(page).toHaveURL(/\/dashboard/);
  await page.goto(base+'/admin/integrations/zonal');
- const card=page.locator(`#preview-${latest.id}`);await expect(card.getByText('Ready to approve',{exact:true})).toBeVisible();
+ const card=page.locator(`#preview-${latest.id}`);await expect(card.getByText('New',{exact:true})).toBeVisible();
  await card.getByLabel('Reason for import / correction').fill('Approve synthetic report for dashboard test');
  await card.getByRole('button',{name:'Approve import',exact:true}).click();
  await expect.poll(async()=>await prisma.zonalImport.count({where:{id:latest.id,status:'APPROVED'}})).toBe(1);
@@ -97,7 +97,7 @@ try{
  assert((await resolveImport(prisma,actor,latest.id,false,true,'Repeated synthetic approval')).includes('Already approved'));
  assert.equal(await prisma.dailySales.count(),1);
  const duplicate=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue(date),branch,source:'ZONAL_BROWSER',payload:report,fingerprint:fingerprint(report),salesVersion:1}});
- await assert.rejects(resolveImport(prisma,actor,duplicate.id,false,true,'Duplicate test'),/Duplicate/);
+ assert((await resolveImport(prisma,actor,duplicate.id,false,true,'Duplicate test')).includes('Already Imported'));
  const expired=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue('2026-11-04'),branch,source:'ZONAL_BROWSER',payload:{...report,date:'2026-11-04'},fingerprint:'expired-test',salesVersion:0,createdAt:new Date(0)}});
  assert((await previewAssessment(prisma,actor.restaurantId,expired)).issues.some(i=>i.code==='EXPIRED'));
 
@@ -120,7 +120,7 @@ try{
  await page.goto(base+'/admin/integrations/zonal');
  const batchCard=page.locator('article').filter({has:page.getByRole('heading',{name:'2026-11-02 — 2026-11-05',exact:true})});
  await expect(batchCard).toContainText('4 of 4 dates checked');
- await expect(batchCard).toContainText('Unchanged — already imported');
+ await expect(batchCard).toContainText('Already Imported');
  await batchCard.screenshot({path:'/tmp/cocotte-zonal-batch-review-test.png'});
  // UI batch approval exercises the explicit confirmation and canonical dashboard refresh.
  await batchCard.getByRole('button',{name:'Select eligible new days'}).click();
@@ -130,7 +130,7 @@ try{
  await page.goto(base+'/dashboard?week='+monday);
  await expect(page.locator('section.dashboard-sales [data-sales-source="Zonal"]')).toHaveCount(3);
  assert.deepEqual(await prisma.forecastDay.findMany({orderBy:{date:'asc'}}),forecastsBefore);
- assert.deepEqual(await approveBatch(prisma,actor,batchId,selected,false,'Idempotent test'),{approved:2,failed:0});
+ assert.deepEqual(await approveBatch(prisma,actor,batchId,selected,false,'Idempotent test'),{approved:2,failed:0,skipped:0});
  assert.equal(await prisma.dailySales.count(),3);
  await resetCooldown();
  const repeatId=await startBatch(prisma,actor,'custom','2026-11-02','2026-11-04');
@@ -143,8 +143,8 @@ try{
  await runBatch(prisma,actor,correctionId,async(_id,_credentials,dates,onDay)=>{await onDay(dates[0],{code:'REPORT_EXTRACTED',report:fixture(date,'110.00') as NonNullable<LoginResult['report']>});return {code:'AUTHENTICATED'};});
  const correction=(await batchOverview(prisma,actor)).find(b=>b.id===correctionId)!.days[0];
  assert.equal(correction.status,'CHANGED');
- assert.deepEqual(await approveBatch(prisma,actor,correctionId,[correction.previewId!],false,'Correction fixture'),{approved:0,failed:1});
- assert.deepEqual(await approveBatch(prisma,actor,correctionId,[correction.previewId!],true,''),{approved:0,failed:1});
+ assert.deepEqual(await approveBatch(prisma,actor,correctionId,[correction.previewId!],false,'Correction fixture'),{approved:0,failed:1,skipped:0});
+ assert.deepEqual(await approveBatch(prisma,actor,correctionId,[correction.previewId!],true,''),{approved:0,failed:1,skipped:0});
  const concurrent=await Promise.all([approveBatch(prisma,actor,correctionId,[correction.previewId!],true,'Synthetic correction'),approveBatch(prisma,actor,correctionId,[correction.previewId!],true,'Synthetic correction')]);
  assert(concurrent.every(result=>result.approved===1));
  assert.equal((await prisma.dailySales.findUniqueOrThrow({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue(date)}}})).version,2);
@@ -158,13 +158,13 @@ try{
  const mixed=(await batchOverview(prisma,actor)).find(b=>b.id===mixedId)!;
  assert.deepEqual(mixed.days.map(d=>d.status),['BLOCKED','CHANGED']);
  assert(mixed.days[0].issues.some(i=>i.code==='MISSING_FORECAST'));
- assert.deepEqual(await approveBatch(prisma,actor,mixedId,mixed.days.map(d=>d.previewId!),true,'Synthetic historical batch'),{approved:1,failed:1});
+ assert.deepEqual(await approveBatch(prisma,actor,mixedId,mixed.days.map(d=>d.previewId!),true,'Synthetic historical batch'),{approved:1,failed:1,skipped:0});
  await resetCooldown();
  const finalizedId=await startBatch(prisma,actor,'custom','2026-11-04','2026-11-04');
  await runBatch(prisma,actor,finalizedId,async(_id,_credentials,dates,onDay)=>{await onDay(dates[0],{code:'REPORT_EXTRACTED',report:fixture(dates[0],'110.00') as NonNullable<LoginResult['report']>});return {code:'AUTHENTICATED'};});
  await prisma.weeklyForecast.update({where:key,data:{finalizedAt:new Date()}});
  assert((await batchOverview(prisma,actor)).find(b=>b.id===finalizedId)!.days[0].issues.some(i=>i.code==='FINALIZED_WEEK'));
- assert.deepEqual(await approveBatch(prisma,actor,finalizedId,[(await batchOverview(prisma,actor)).find(b=>b.id===finalizedId)!.days[0].previewId!],true,'Finalized test'),{approved:0,failed:1});
+ assert.deepEqual(await approveBatch(prisma,actor,finalizedId,[(await batchOverview(prisma,actor)).find(b=>b.id===finalizedId)!.days[0].previewId!],true,'Finalized test'),{approved:0,failed:1,skipped:0});
  await prisma.weeklyForecast.update({where:key,data:{finalizedAt:null}});
  const foreign={...actor,restaurantId:'foreign'};
  await assert.rejects(approveBatch(prisma,foreign,batchId,selected,true,'Foreign test'),/not found/);
@@ -178,6 +178,53 @@ try{
  const interruptedId=await startBatch(prisma,actor,'custom','2026-11-02','2026-11-03');
  await prisma.zonalSyncBatch.update({where:{id:interruptedId},data:{heartbeatAt:new Date(0)}});
  assert.equal((await batchOverview(prisma,actor)).find(b=>b.id===interruptedId)!.status,'INTERRUPTED');
+
+ // Real PostgreSQL duplicate guarantees across manual entry and Zonal approval.
+ const raceDate='2026-11-05';
+ const raceReport=validateReport(fixture(raceDate),branch,raceDate);
+ const racePreview=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue(raceDate),branch,source:'ZONAL_BROWSER',payload:raceReport,fingerprint:fingerprint(raceReport),salesVersion:0}});
+ const race=await Promise.allSettled([
+  saveActualSales(prisma,actor,{date:raceDate,amount:12000n,version:0,reason:'Synthetic manual/Zonal race'},'2026-11-06'),
+  resolveImport(prisma,actor,racePreview.id,false,false,'Synthetic manual/Zonal race')
+ ]);
+ assert.equal(race.filter(result=>result.status==='fulfilled').length,1);
+ assert.equal(await prisma.dailySales.count({where:{restaurantId:actor.restaurantId,date:dateValue(raceDate)}}),1);
+ let official=await prisma.dailySales.findUniqueOrThrow({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue(raceDate)}}});
+ assert.equal(official.version,1);
+ await assert.rejects(prisma.dailySales.create({data:{restaurantId:actor.restaurantId,date:official.date,amountPence:1n}}),error=>(error as {code?:string}).code==='P2002');
+ const auditBeforeReplay=await prisma.auditLog.count();
+ await Promise.all([
+  saveActualSales(prisma,actor,{date:raceDate,amount:official.amountPence,version:0,reason:''},'2026-11-06'),
+  saveActualSales(prisma,actor,{date:raceDate,amount:official.amountPence,version:0,reason:''},'2026-11-06')
+ ]);
+ assert.equal(await prisma.auditLog.count(),auditBeforeReplay);
+ assert.deepEqual(await prisma.dailySales.findUniqueOrThrow({where:{id:official.id}}),official);
+ const matching={...raceReport,net:official.amountPence.toString(),gross:(official.amountPence*120n/100n).toString(),vat:(official.amountPence*20n/100n).toString(),food:(official.amountPence-3000n).toString()};
+ const replay=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:official.date,branch,source:'ZONAL_BROWSER',payload:matching,fingerprint:fingerprint(matching),salesVersion:official.version}});
+ assert((await resolveImport(prisma,actor,replay.id,false,false,'')).includes('Already Imported'));
+ assert.equal(await prisma.auditLog.count(),auditBeforeReplay);
+ assert.deepEqual(await prisma.dailySales.findUniqueOrThrow({where:{id:official.id}}),official);
+ await assert.rejects(saveActualSales(prisma,actor,{date:raceDate,amount:official.amountPence+1000n,version:official.version,reason:' '},'2026-11-06'),/Explain/);
+ await saveActualSales(prisma,actor,{date:raceDate,amount:official.amountPence+1000n,version:official.version,reason:'Explicit synthetic correction'},'2026-11-06');
+ official=await prisma.dailySales.findUniqueOrThrow({where:{id:official.id}});
+ assert.equal(official.version,2);
+ assert.equal(await prisma.dailySales.count({where:{restaurantId:actor.restaurantId,date:official.date}}),1);
+ assert.equal(await prisma.auditLog.count({where:{action:'SALES_CORRECTED',entityId:official.id}}),1);
+ assert.deepEqual(await prisma.forecastDay.findMany({orderBy:{date:'asc'}}),forecastsBefore);
+
+ const totals=await prisma.dailySales.aggregate({where:{restaurantId:actor.restaurantId,date:{gte:dateValue(monday),lte:dateValue('2026-11-08')}},_sum:{amountPence:true}});
+ assert.equal((await financialWeek(actor.restaurantId,monday,'2026-11-06',prisma)).sales!.actualPence,totals._sum.amountPence);
+ await assert.rejects(resolveImport(prisma,foreign,replay.id,false,true,'Foreign single-day attempt'),/not found/);
+ await assert.rejects(saveActualSales(prisma,foreign,{date:raceDate,amount:1n,version:official.version,reason:'Foreign manual attempt'},'2026-11-06'),/weekly forecast/);
+ assert.equal((await prisma.dailySales.findUniqueOrThrow({where:{id:official.id}})).amountPence,official.amountPence);
+ await saveWeeklyForecast(prisma,actor,{weekStart:'2026-10-26',version:0,amounts:Array(7).fill(10000n),reason:'Synthetic historical test plan'});
+ await assert.rejects(saveActualSales(prisma,actor,{date:'2026-11-01',amount:5000n,version:0,reason:''},'2026-11-06'),/historical/);
+ await saveActualSales(prisma,actor,{date:'2026-11-01',amount:5000n,version:0,reason:'Synthetic historical report'},'2026-11-06');
+ const historical=await prisma.dailySales.findUniqueOrThrow({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue('2026-11-01')}}});
+ assert((await saveActualSales(prisma,actor,{date:'2026-11-01',amount:5000n,version:0,reason:''},'2026-11-06'))!.includes('Already Imported'));
+ assert.deepEqual(await prisma.dailySales.findUniqueOrThrow({where:{id:historical.id}}),historical);
+ console.log('PASS historical entry reason and replay; foreign restaurant manual/single-import denial; canonical financial totals equal DailySales aggregate only.');
+ console.log('PASS PostgreSQL UNIQUE violation P2002; manual versus Zonal concurrency; stale corrections rejected; matching manual/import retries no-op; correction preserves one canonical ID and audit.');
  // Exercise the real Next server action + after() path without network or a real browser login.
  // The test server has an intentionally absent Playwright browser path.
  await resetCooldown();

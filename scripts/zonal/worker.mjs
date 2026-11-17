@@ -2,7 +2,7 @@
 import { chromium, errors } from 'playwright';
 import { ORIGIN, loginSession, inspectLoginState } from '../../src/lib/zonal/browser-session.mjs';
 import { openFinancialDetail,setFinancialParameters,REPORT_ROOT } from '../../src/lib/zonal/financial-detail.mjs';
-import { parseFinancialDetail } from '../../src/lib/zonal/financial-parser.mjs';
+import { parseFinancialDetail,FINANCIAL_ERROR_CODES } from '../../src/lib/zonal/financial-parser.mjs';
 import { allowZonalRequest } from '../../src/lib/zonal/network-policy.mjs';
 let browser, context;
 let finished = false;
@@ -30,10 +30,11 @@ async function finish(result) {
   try { if (process.connected) await new Promise(resolve => process.send(result, () => resolve())); } catch { /* Parent gone. */ }
   process.exit(0);
 }
-const deadline = setTimeout(() => { diagnostic(currentStage,'TIMEOUT'); void finish({code:'TIMEOUT'}); }, process.argv[2]==='batch'?895000:process.argv[2]==='extract'?90000:35000);
+const deadline = setTimeout(() => { diagnostic(currentStage,'TIMEOUT'); void finish({code:'TIMEOUT'}); }, process.argv[2]==='stock'?60000:process.argv[2]==='batch'?895000:['extract','latest'].includes(process.argv[2])?90000:35000);
+process.on('disconnect', () => { void finish({code:'TIMEOUT'}); });
 process.on('SIGTERM', () => { diagnostic(currentStage,'TIMEOUT'); void finish({code:'TIMEOUT'}); });
 try {
-  if (!['login','extract','batch'].includes(process.argv[2])) await finish({ code: 'EXTRACTION_UNVERIFIED' });
+  if (!['login','extract','latest','batch','stock'].includes(process.argv[2])) await finish({ code: 'EXTRACTION_UNVERIFIED' });
   const username = process.env.ZONAL_USERNAME, password = process.env.ZONAL_PASSWORD;
   if (!username || !password) await finish({ code: 'NOT_CONFIGURED' });
   stage('BROWSER_LAUNCH','STARTED');
@@ -56,8 +57,20 @@ try {
   verifiedLogin=login.code==='AUTHENTICATED';
   if(login.code!=='AUTHENTICATED'||process.argv[2]==='login')await finish(login);
 
+  if(process.argv[2]==='stock'){
+    const {discoverStockReports}=await import('../../src/lib/zonal/stock-discovery.mjs');
+    try{await finish({code:'STOCK_UNSUPPORTED',stockDiscovery:await discoverStockReports(page,stage)});}catch{await finish({code:'STOCK_UNSUPPORTED'});}
+  }
   const dashboardUrl=page.url();
-  const dates=process.argv[2]==='batch'?process.argv[3].split(','):[process.argv[3]];
+  let dates=process.argv[2]==='batch'?process.argv[3].split(','):[process.argv[3]];
+  let reportOpen=false;
+  if(process.argv[2]==='latest'){
+    page=await openFinancialDetail(page,stage);reportOpen=true;
+    const {availableReportDates}=await import('../../src/lib/zonal/report-dates.mjs');
+    const available=availableReportDates(await page.getByLabel('Start Date',{exact:true}).locator('option').allTextContents(),process.argv[3]);
+    if(!available.length)await finish({code:'REPORT_DATE_UNAVAILABLE'});
+    dates=[available.at(-1)];
+  }
   for(const date of dates){
     let result;
     const dayDeadline=setTimeout(()=>{for(const active of context.pages())void active.close().catch(()=>{});},60000);
@@ -70,10 +83,10 @@ try {
       if(await page.locator('#Content_LoginUser_password').isVisible())await finish({code:'LOGIN_UNVERIFIED'});
     }
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error('DATE_UNAVAILABLE');
-      page=await openFinancialDetail(page,stage);
+      if(!reportOpen)page=await openFinancialDetail(page,stage);
       await setFinancialParameters(page,date,stage);
       await page.locator(REPORT_ROOT).getByText('Branch: 003 - Parsons Green',{exact:true}).waitFor({state:'visible',timeout:20000});
-      await page.locator(REPORT_ROOT).getByText('Net Sales',{exact:true}).first().waitFor({state:'visible',timeout:10000});
+      await page.waitForFunction(root=>/^Page\s+\d+\s+of\s+\d+$/m.test(document.querySelector(root)?.innerText??''),REPORT_ROOT,{timeout:20000});
       if(accessBlocked||(await inspectLoginState(page)).code==='ACCESS_CONTROL')await finish({code:'ACCESS_CONTROL'});
       if(await page.locator('#Content_LoginUser_password').isVisible())await finish({code:'LOGIN_UNVERIFIED'});
       stage('REPORT_PARSE','STARTED');
@@ -82,7 +95,8 @@ try {
     }catch(error){
       diagnostic(currentStage,error instanceof errors.TimeoutError?'TIMEOUT':'VALIDATION_FAILED');
       if(accessBlocked||(await inspectLoginState(page).catch(()=>({code:'LOGIN_UNVERIFIED'}))).code==='ACCESS_CONTROL')await finish({code:'ACCESS_CONTROL'});
-      result={code:error?.message==='DATE_UNAVAILABLE'?'REPORT_DATE_UNAVAILABLE':'REPORT_INVALID',loginVerified:true};
+      const failureReason=error instanceof errors.TimeoutError?'REPORT_RENDER_TIMEOUT':FINANCIAL_ERROR_CODES.includes(error?.message)?error.message:undefined;
+      result={code:error?.message==='DATE_UNAVAILABLE'?'REPORT_DATE_UNAVAILABLE':error instanceof errors.TimeoutError?'TIMEOUT':'REPORT_INVALID',loginVerified:true,...(failureReason?{failureReason}:{})};
     }
     clearTimeout(dayDeadline);
     if(process.argv[2]!=='batch')await finish(result);

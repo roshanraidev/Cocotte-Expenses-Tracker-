@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), remove: vi.fn(), find: vi.fn(), create: vi.fn(), deleteMany: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), remove: vi.fn(),policy:vi.fn(), find: vi.fn(), create: vi.fn(), deleteMany: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.get, set: mocks.set, delete: mocks.remove }) }));
 vi.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`); } }));
-vi.mock('../src/lib/db', () => ({ db: () => ({ session: { findUnique: mocks.find, deleteMany: mocks.deleteMany }, $transaction: async (fn: (tx: unknown) => unknown) => fn({ session: { create: mocks.create, deleteMany: mocks.deleteMany } }) }) }));
-import { currentUser, requireAdmin, requireUser, startSession, endSession } from '../src/lib/auth';
+vi.mock('../src/lib/db', () => ({ db: () => ({ session: { findUnique: mocks.find, deleteMany: mocks.deleteMany },accessRolePolicy:{findUnique:mocks.policy}, $transaction: async (fn: (tx: unknown) => unknown) => fn({ session: { create: mocks.create, deleteMany: mocks.deleteMany } }) }) }));
+import { currentUser, requireAdmin, requireUser, startSession, endSession,requirePermission } from '../src/lib/auth';
 import { hashToken } from '../src/lib/tokens';
 const token = 'a'.repeat(64);
 const user = { id: 'chef-1', name: 'Chef', email: 'chef@example.com', role: 'CHEF', active: true, restaurantId: 'restaurant' };
-beforeEach(() => { vi.clearAllMocks(); mocks.get.mockReturnValue({ value: token }); mocks.find.mockResolvedValue({ user, expiresAt: new Date(Date.now() + 60_000) }); });
+beforeEach(() => { vi.clearAllMocks();mocks.policy.mockResolvedValue(null); mocks.get.mockReturnValue({ value: token }); mocks.find.mockResolvedValue({ user, expiresAt: new Date(Date.now() + 60_000) }); });
 describe('server-side sessions and authorization', () => {
   it('redirects unauthenticated users and avoids looking up malformed tokens', async () => {
     mocks.get.mockReturnValue({ value: 'malformed' });
@@ -22,7 +22,7 @@ describe('server-side sessions and authorization', () => {
     expect(await currentUser()).toBeNull();
   });
   it('enforces admin access on the server', async () => {
-    await expect(requireAdmin()).rejects.toThrow('redirect:/dashboard');
+    await expect(requireAdmin()).rejects.toThrow('redirect:/access-denied');
     mocks.find.mockResolvedValue({ user: { ...user, role: 'SUPER_USER' }, expiresAt: new Date(Date.now() + 60_000) });
     expect((await requireAdmin()).role).toBe('SUPER_USER');
   });
@@ -38,4 +38,14 @@ describe('server-side sessions and authorization', () => {
     await endSession(); expect(mocks.deleteMany).toHaveBeenCalledWith({ where: { tokenHash: hashToken(token) } });
     expect(mocks.remove).toHaveBeenCalled();
   });
+});
+
+it('enforces the current per-user permissions and configurable defaults on every request',async()=>{
+ mocks.find.mockResolvedValue({user:{...user,accessRole:'VIEWER',permissionOverrides:{'reports.export':false}},expiresAt:new Date(Date.now()+60000)});
+ await expect(requirePermission('users.view')).rejects.toThrow('redirect:/access-denied');
+ expect((await currentUser())?.permissions).not.toContain('reports.export');
+ mocks.policy.mockResolvedValue({permissions:['reports.view','reports.export']});
+ expect((await currentUser())?.permissions).not.toContain('reports.export');
+ mocks.find.mockResolvedValue({user:{...user,accessRole:'VIEWER',permissionOverrides:{}},expiresAt:new Date(Date.now()+60000)});
+ expect((await currentUser())?.permissions).toContain('reports.export');
 });

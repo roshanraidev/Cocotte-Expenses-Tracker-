@@ -1,10 +1,12 @@
 'use client';
+import {usePermission} from './permission-provider';
 import {useActionState,useId,useState} from 'react';
 import {packagingAction} from '@/app/(protected)/packaging/actions';
 import type {Field} from './operation-form';
 import type {ReviewLine} from '@/lib/packaging/values';
 export function PackagingForm({operation,fields=[],hidden={},button='Save',upload=false}:{operation:string;fields?:Field[];hidden?:Record<string,string>;button?:string;upload?:boolean}){
  const id=useId();const [state,action,pending]=useActionState(packagingAction,{error:'',success:''});
+ const allowed=usePermission(operation==='upload'?'purchasing.create':operation==='scan'?'purchasing.edit':operation==='void'?'purchasing.correct':operation==='product'?'inventory.create':'inventory.catalog');if(!allowed)return null;
  return <form action={action} className="space-y-3"><input type="hidden" name="operation" value={operation}/>{Object.entries(hidden).map(([k,v])=><input type="hidden" key={k} name={k} value={v}/>)}<div className="grid gap-3 sm:grid-cols-2">{fields.map(f=><div key={f.name}><label htmlFor={`${id}-${f.name}`}>{f.label}</label>{f.type==='select'?<select id={`${id}-${f.name}`} name={f.name} required={f.required!==false} defaultValue={f.value??''}><option value="" disabled>Select…</option>{f.options?.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select>:<input id={`${id}-${f.name}`} name={f.name} type={f.type??'text'} defaultValue={f.value??''} required={f.required!==false} maxLength={500}/>}</div>)}{upload&&<div className="sm:col-span-2"><label htmlFor={`${id}-file`}>Invoice file (optional for manual entry)</label><input id={`${id}-file`} name="file" type="file" accept="application/pdf,image/jpeg,image/png"/><p className="mt-2 text-xs text-stone-500">PDF/JPG/PNG, maximum 8 MB and 5 PDF pages. On your phone, choose Take Photo or Photo Library. Convert HEIC to JPG first. Leave blank to enter products manually.</p></div>}</div>{state.error&&<p role="alert" className="notice">{state.error}</p>}{state.success&&<p role="status" className="text-sm text-green-800">{state.success}</p>}<button className="btn" disabled={pending}>{pending?upload?'Uploading & scanning…':'Saving…':button}</button></form>;
 }
 type EditableLine=Omit<ReviewLine,'category'>&{category:string};

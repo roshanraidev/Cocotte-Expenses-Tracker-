@@ -7,6 +7,8 @@ import {Prisma} from '@/generated/prisma/client';
 import {z} from 'zod';
 import {registerInvoice,saveReview,catalogueOperation,PackagingError} from '@/lib/packaging/service';
 import {extractDocument} from '@/lib/packaging/extract';
+import {packagingPermission} from '@/lib/permissions';
+import {assertPermission,AccessError} from '@/lib/access';
 import {keyOf} from '@/lib/packaging/values';
 import type {FormResult} from '@/lib/sales-validation';
 async function scan(id:string,user:{id:string;restaurantId:string}){
@@ -22,6 +24,7 @@ async function scan(id:string,user:{id:string;restaurantId:string}){
 export async function packagingAction(_previous:FormResult,form:FormData):Promise<FormResult>{
  const user=await requireUser();const operation=String(form.get('operation'));let go='';
  try{
+  assertPermission(user,packagingPermission(operation));if(operation==='confirm')assertPermission(user,'purchasing.edit');
   if(operation==='upload'){
    const upload=form.get('entryMode')==='manual'?null:form.get('file');
    if(form.get('entryMode')==='file'&&(!(upload instanceof File)||!upload.size))throw new PackagingError('Choose an invoice file first.');const file=upload instanceof File&&upload.size?{bytes:new Uint8Array(await upload.arrayBuffer()),filename:upload.name,mime:upload.type}:undefined;
@@ -30,7 +33,7 @@ export async function packagingAction(_previous:FormResult,form:FormData):Promis
   }else if(operation==='scan'){await scan(String(form.get('id')),user);}
   else if(operation==='review'||operation==='confirm'){await saveReview(db(),user,String(form.get('id')),Number(form.get('version')),JSON.parse(String(form.get('review'))),operation==='confirm');}
   else await catalogueOperation(db(),user,operation,Object.fromEntries(form));
- }catch(e){if(e instanceof PackagingError||e instanceof z.ZodError)return {error:e instanceof z.ZodError?e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; '):e.message,success:''};if(e instanceof Prisma.PrismaClientKnownRequestError&&['P2002','P2025'].includes(e.code))return {error:'This record already exists or is unavailable. Reload and check supplier, invoice number and product links.',success:''};if(e instanceof SyntaxError)return {error:'Invalid review data. Reload and try again.',success:''};if(operation==='upload'&&e instanceof Error)return {error:'The upload could not be saved. Try again or contact your administrator. No invoice has been confirmed.',success:''};throw e;}
+ }catch(e){if(e instanceof PackagingError||e instanceof AccessError||e instanceof z.ZodError)return {error:e instanceof z.ZodError?e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; '):e.message,success:''};if(e instanceof Prisma.PrismaClientKnownRequestError&&['P2002','P2025'].includes(e.code))return {error:'This record already exists or is unavailable. Reload and check supplier, invoice number and product links.',success:''};if(e instanceof SyntaxError)return {error:'Invalid review data. Reload and try again.',success:''};if(operation==='upload'&&e instanceof Error)return {error:'The upload could not be saved. Try again or contact your administrator. No invoice has been confirmed.',success:''};throw e;}
  for(const p of ['/packaging','/packaging/invoices','/packaging/products','/packaging/reports','/packaging/suppliers','/suppliers','/orders'])revalidatePath(p,'page');
  if(form.get('id'))revalidatePath(`/packaging/invoices/${String(form.get('id'))}`);
  if(go)redirect(go);

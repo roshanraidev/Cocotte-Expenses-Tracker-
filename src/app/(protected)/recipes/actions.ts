@@ -5,23 +5,31 @@ import { redirect } from 'next/navigation';
 import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import { lockRecipeGraph, replaceComponents, RecipeFeatureError } from '@/lib/recipe-features';
-import { requireAdmin } from '@/lib/auth';
+import { setRecipeArchived } from '@/lib/recipe-archive';
+import { requirePermission } from '@/lib/auth';
 
 const clean=(v:FormDataEntryValue|null,max=5000)=>String(v??'').trim().slice(0,max);
 const bool=(v:FormDataEntryValue|null)=>v==='on';
 function ingredients(raw:string){return raw.split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{const [name='',quantity='',unit='']=line.split('|').map(x=>x.trim());return {name,quantity,unit};}).filter(x=>x.name);}
 export async function saveRecipeType(form:FormData){
- const user=await requireAdmin(),id=clean(form.get('id'),100),name=clean(form.get('name'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0),visible=bool(form.get('visible'));
+ const user=await requirePermission('recipes.edit'),id=clean(form.get('id'),100),name=clean(form.get('name'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0),visible=bool(form.get('visible'));
  if(!name) throw new Error('Recipe type name is required.');
  if(id) await db().$executeRaw(Prisma.sql`UPDATE "RecipeType" SET name=${name},visible=${visible},"sortOrder"=${sortOrder},"updatedAt"=NOW() WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);
  else await db().$executeRaw(Prisma.sql`INSERT INTO "RecipeType"(id,"restaurantId",name,visible,"sortOrder","createdAt","updatedAt") VALUES(${randomUUID()},${user.restaurantId},${name},${visible},${sortOrder},NOW(),NOW())`);
  revalidatePath('/recipes', 'layout');
 }
 export async function deleteRecipeType(form:FormData){
- const user=await requireAdmin(),id=clean(form.get('id'),100); if(id){await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`DELETE FROM "Recipe" WHERE "typeId"=${id} AND "restaurantId"=${user.restaurantId}`);await tx.$executeRaw(Prisma.sql`DELETE FROM "RecipeType" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);});} revalidatePath('/recipes', 'layout');
+ const user=await requirePermission('recipes.edit'),id=clean(form.get('id'),100);
+ if(id)await db().$transaction(async tx=>{
+  await lockRecipeGraph(tx,user.restaurantId);
+  const rows=await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE "typeId"=${id} AND "restaurantId"=${user.restaurantId} LIMIT 1`);
+  if(rows.length)throw new RecipeFeatureError('This category contains active or archived recipes. Move them to another category before deleting it.');
+  await tx.$executeRaw(Prisma.sql`DELETE FROM "RecipeType" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);
+ });
+ revalidatePath('/recipes', 'layout');
 }
 export async function saveRecipe(form:FormData){
- const user=await requireAdmin(),id=clean(form.get('id'),100),name=clean(form.get('name'),120),typeId=clean(form.get('typeId'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0);
+ const id=clean(form.get('id'),100),user=await requirePermission(id?'recipes.edit':'recipes.create'),name=clean(form.get('name'),120),typeId=clean(form.get('typeId'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0);
  if(!name||!typeId) throw new Error('Recipe name and recipe type are required.');
  const data={visible:bool(form.get('visible')),beforeService:form.has('method')?String(form.get('method')??''):String(form.get('beforeService')??''),onOrder:form.has('method')?'':String(form.get('onOrder')??''),allergens:clean(form.get('allergens'),1000),mayContain:clean(form.get('mayContain'),1000),suitability:clean(form.get('suitability'),1000),ingredients:ingredients(String(form.get('ingredients')??''))};
  const removeImage=form.get('removeImage')==='true';
@@ -32,7 +40,7 @@ export async function saveRecipe(form:FormData){
   await lockRecipeGraph(tx,user.restaurantId);
  const validType=await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "RecipeType" WHERE id=${typeId} AND "restaurantId"=${user.restaurantId} LIMIT 1`);
  if(!validType.length) throw new Error('Choose a valid recipe type.');
-  if(id){const owned=await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);if(!owned.length)return;}
+  if(id){const owned=await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE id=${id} AND "restaurantId"=${user.restaurantId} AND "archivedAt" IS NULL`);if(!owned.length)throw new RecipeFeatureError('This recipe is archived or unavailable. Restore it before editing.');}
  if(id){
   await tx.$executeRaw(Prisma.sql`UPDATE "Recipe" SET name=${name},"typeId"=${typeId},visible=${data.visible},"sortOrder"=${sortOrder},ingredients=${JSON.stringify(data.ingredients)}::jsonb,"beforeService"=${data.beforeService},"onOrder"=${data.onOrder},allergens=${data.allergens},"mayContain"=${data.mayContain},suitability=${data.suitability},${removeImage?Prisma.sql`"imageBytes"=NULL,"imageMime"=NULL,`:bytes?Prisma.sql`"imageBytes"=${bytes},"imageMime"=${mime},`:Prisma.empty}"updatedAt"=NOW() WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);
  } else {
@@ -45,7 +53,21 @@ export async function saveRecipe(form:FormData){
  });
  revalidatePath('/recipes', 'layout'); redirect('/recipes');
 }
-export async function deleteRecipe(form:FormData){const user=await requireAdmin(),id=clean(form.get('id'),100);if(id)await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`DELETE FROM "Recipe" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);});revalidatePath('/recipes', 'layout');}
+// Keep the existing Delete action contract, but make permanent deletion impossible here.
+export async function deleteRecipe(form:FormData){
+ const user=await requirePermission('recipes.archive');await setRecipeArchived(db(),user,clean(form.get('id'),100),true);
+ revalidatePath('/recipes','layout');redirect('/recipes?notice=archived');
+}
+export async function restoreRecipe(form:FormData){
+ const user=await requirePermission('recipes.restore');await setRecipeArchived(db(),user,clean(form.get('id'),100),false);
+ revalidatePath('/recipes','layout');redirect('/recipes?notice=restored');
+}
+export async function archiveRecipeFormAction(_: {error:string},form:FormData):Promise<{error:string}>{
+ try{await deleteRecipe(form);return {error:''};}catch(error){if(error instanceof RecipeFeatureError)return {error:error.message};throw error;}
+}
+export async function restoreRecipeFormAction(_: {error:string},form:FormData):Promise<{error:string}>{
+ try{await restoreRecipe(form);return {error:''};}catch(error){if(error instanceof RecipeFeatureError)return {error:error.message};throw error;}
+}
 
 export async function recipeFormAction(_: {error: string}, form: FormData): Promise<{error: string}> {
  try { await saveRecipe(form); return {error:''}; }

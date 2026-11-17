@@ -25,6 +25,14 @@ describe('verified Financial Detail layout',()=>{
   expect(raw()).toEqual({branch,date,currency:'GBP',gross:'120.00',discount:'20.00',vat:'20.00',net:'100.00',food:'70.00',drink:'20.00',specials:'10.00',covers:'12',transactions:'38'});
   expect(validateReport(raw(),branch,date).net).toBe('10000');
  });
+ it('accepts the verified extra Miscellaneous row only when its explicitly reported net is zero',()=>{
+  const extra=['Miscellaneous','1','£0.00','£0.00','£0.00','£0.00','£0.00','0.00%','£0.00','0.00%'].join('\n')+'\n';
+  const withZero=fixture.replace('SPECIALS\n',extra+'SPECIALS\n');expect(parseFinancialDetail(withZero,branch,date)).toEqual(raw());
+  expect(()=>parseFinancialDetail(withZero.replace('£0.00\n0.00%','£1.00\n0.00%'),branch,date)).toThrow();
+ });
+ it('retains missing summaries as explicit failures rather than inventing zero sales',()=>{
+  const empty=['Financial Detail','Date Range: 03 Nov 2026 - 03 Nov 2026','Branch: 003 - Parsons Green','Page 1 of 1'].join('\n');expect(()=>parseFinancialDetail(empty,branch,date)).toThrow('REPORT_SUMMARY_MISSING');
+ });
  it('handles non-zero discounts without subtracting them twice',()=>{
   const report=validateReport(raw(),branch,date);expect(report.gross).toBe('12000');expect(report.discount).toBe('2000');expect(report.net).toBe('10000');
  });
@@ -52,7 +60,7 @@ function database(){
   $queryRaw:vi.fn(),restaurant:{findUniqueOrThrow:vi.fn().mockResolvedValue({currency:'GBP'})},
   zonalConnection:{findUnique:vi.fn(async({where}:{where:{restaurantId:string}})=>where.restaurantId===actor.restaurantId?connection:null),upsert:vi.fn(async()=>{connection.revision++;return {...connection};}),updateMany:vi.fn(async({where}:{where:{revision:number}})=>({count:where.revision===connection.revision&&connection.encryptedCredentials?1:0}))},
   dailySales:{findUnique:vi.fn().mockResolvedValue({version:3,amountPence:123n}),create:vi.fn(),update:vi.fn()},
-  zonalImport:{create:vi.fn().mockResolvedValue({id:'preview-browser'})},auditLog:{create:vi.fn()},
+  zonalImport:{findFirst:vi.fn().mockResolvedValue(null),create:vi.fn().mockResolvedValue({id:'preview-browser'})},auditLog:{create:vi.fn()},
  };
  return {tx,connection,prisma:{...tx,$transaction:async(fn:(t:unknown)=>unknown)=>fn(tx)} as unknown as PrismaClient};
 }

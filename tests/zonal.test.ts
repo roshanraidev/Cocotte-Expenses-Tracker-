@@ -56,7 +56,7 @@ describe('sales import controls', () => {
     await expect(resolveImport(database({ finalized: true }).prisma, actor, 'preview', false, true, 'Report')).rejects.toThrow('finalized');
   });
   it('prevents duplicate reports and makes repeated approval idempotent', async () => {
-    await expect(resolveImport(database({ prior: true, sale: { amountPence: 116792n, version: 1 } }).prisma, actor, 'preview', false, true, 'Report')).rejects.toThrow('Duplicate');
+    await expect(resolveImport(database({ prior: true, sale: { amountPence: 116792n, version: 1 } }).prisma, actor, 'preview', false, true, 'Report')).resolves.toContain('Already Imported');
     const { prisma, tx } = database({ status: 'APPROVED' });
     expect(await resolveImport(prisma, actor, 'preview', false, true, 'Report')).toContain('Already approved');
     expect(tx.dailySales.update).not.toHaveBeenCalled(); expect(tx.dailySales.create).not.toHaveBeenCalled();

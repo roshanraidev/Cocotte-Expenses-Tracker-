@@ -1,13 +1,14 @@
 import 'server-only';
 import { resolveTarget } from './target-service';
 import type { PrismaClient } from '@/generated/prisma/client';
+import {can,type Permission} from './permissions';
 import type { AppRole } from './policy';
 import type { ForecastInput, DailySalesInput } from './sales-validation';
 import { dateValue, mondayOf, weekDays, londonToday, dateKey } from './dates';
 export class SalesError extends Error {}
-export type SalesActor = { id: string; restaurantId: string; role: AppRole };
+export type SalesActor = { id: string; restaurantId: string; role: AppRole; permissions?:readonly Permission[] };
 export async function saveWeeklyForecast(prisma: PrismaClient, actor: SalesActor, input: ForecastInput) {
-  if (actor.role !== 'SUPER_USER') throw new SalesError('Only Super Users can create or edit forecasts.');
+  if (!can(actor,'settings.edit')) throw new SalesError('You do not have permission to edit forecasts.');
   const dates = weekDays(input.weekStart);
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "restaurantId" FROM "RestaurantSettings" WHERE "restaurantId" = ${actor.restaurantId} FOR UPDATE`;
@@ -42,28 +43,30 @@ export async function saveWeeklyForecast(prisma: PrismaClient, actor: SalesActor
   });
 }
 export async function saveActualSales(prisma: PrismaClient, actor: SalesActor, input: DailySalesInput, today = londonToday()) {
+  if(!can(actor,input.version>0?'sales.correct':'sales.create'))throw new SalesError('You do not have permission to record sales.');
   if (input.date > today) throw new SalesError('Actual sales cannot be entered for a future date.');
   const monday = mondayOf(input.date);
-  if (actor.role === 'CHEF' && input.version !== 0) throw new SalesError('Only Super Users can correct saved sales.');
+  if (!can(actor,'sales.correct') && input.version !== 0) throw new SalesError('Only Super Users can correct saved sales.');
   return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id = ${actor.restaurantId} FOR UPDATE`;
     await tx.$queryRaw`SELECT "restaurantId" FROM "RestaurantSettings" WHERE "restaurantId" = ${actor.restaurantId} FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM "WeeklyForecast" WHERE "restaurantId" = ${actor.restaurantId} AND "weekStart" = ${dateValue(monday)} FOR UPDATE`;
     const week = await tx.weeklyForecast.findUnique({ where: { restaurantId_weekStart: { restaurantId: actor.restaurantId, weekStart: dateValue(monday) } } });
-    if (!week) throw new SalesError('A Super User must create the weekly forecast before sales can be entered.');
-    if (week.finalizedAt) throw new SalesError('This week is finalized. A Super User must reopen it with an audited reason.');
     const where = { restaurantId_date: { restaurantId: actor.restaurantId, date: dateValue(input.date) } };
     const existing = await tx.dailySales.findUnique({ where });
-    if (existing && actor.role !== 'SUPER_USER') throw new SalesError('Sales are already recorded for this day. Ask a Super User to correct them.');
+    if(existing?.amountPence===input.amount)return 'Already Imported: official sales match; no financial changes made.';
+    if (!week) throw new SalesError('A Super User must create the weekly forecast before sales can be entered.');
+    if (week.finalizedAt) throw new SalesError('This week is finalized. A Super User must reopen it with an audited reason.');
+    if (existing && !can(actor,'sales.correct')) throw new SalesError('Sales are already recorded for this day. Ask a Super User to correct them.');
     if (existing ? existing.version !== input.version : input.version !== 0) throw new SalesError('Sales changed since you opened this form. Reload before saving.');
-    if ((existing || monday !== mondayOf(today)) && input.reason.length < 3) throw new SalesError('Explain the correction or historical entry (at least 3 characters).');
-    if (existing?.amountPence === input.amount) return;
+    if ((existing || monday !== mondayOf(today)) && input.reason.trim().length < 3) throw new SalesError('Explain the correction or historical entry (at least 3 characters).');
     const sale = existing
-      ? await tx.dailySales.update({ where, data: { amountPence: input.amount, version: { increment: 1 } } })
+      ? await tx.dailySales.update({ where:{...where,version:existing.version}, data: { amountPence: input.amount, version: { increment: 1 } } })
       : await tx.dailySales.create({ data: { restaurantId: actor.restaurantId, date: dateValue(input.date), amountPence: input.amount } });
     await tx.auditLog.create({ data: {
       restaurantId: actor.restaurantId, actorId: actor.id, action: existing ? 'SALES_CORRECTED' : 'SALES_RECORDED', entity: 'DailySales', entityId: sale.id,
       ...(existing ? { before: { date: input.date, pence: existing.amountPence.toString() } } : {}),
-      after: { date: input.date, pence: input.amount.toString() }, reason: input.reason || null,
+      after: { date: input.date, pence: input.amount.toString() }, reason: input.reason.trim() || null,
     } });
   });
 }

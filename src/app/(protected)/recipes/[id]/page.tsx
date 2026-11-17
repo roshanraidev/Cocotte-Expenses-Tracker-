@@ -1,3 +1,4 @@
+import {can} from '@/lib/permissions';
 import MethodPresentation from '../method-presentation';
 import ComponentDetails from '../component-details';
 import {recipeComponents} from '@/lib/recipe-features';
@@ -5,13 +6,16 @@ import {preparationMethod} from '@/lib/recipe-method';
 import Link from 'next/link';
 import {Utensils,ArrowLeft,ArrowUpRight,Leaf,ChefHat} from 'lucide-react';
 import {notFound} from 'next/navigation';
-import {requireUser} from '@/lib/auth';
+import {requirePermission} from '@/lib/auth';
+import RecipeActionForm from '../action-form';
+import {restoreRecipeFormAction} from '../actions';
 import {recipe} from '@/lib/recipes';
 export default async function RecipePage({params}:{params:Promise<{id:string}>}){
- const user=await requireUser(),{id}=await params,r=await recipe(user.restaurantId,id,user.role==='SUPER_USER');if(!r)notFound();
- const components=await recipeComponents(user.restaurantId,id,user.role==='SUPER_USER');
+ const user=await requirePermission('recipes.view'),{id}=await params,r=await recipe(user.restaurantId,id,can(user,'recipes.edit')||can(user,'recipes.create')||can(user,'recipes.archive')||can(user,'recipes.restore'));if(!r)notFound();
+ const components=await recipeComponents(user.restaurantId,id,can(user,'recipes.edit')||can(user,'recipes.create')||can(user,'recipes.archive')||can(user,'recipes.restore'));
  return <>
-  <nav className="recipe-detail-navigation" aria-label="Recipe navigation"><Link href="/recipes"><ArrowLeft size={15}/>Recipe library</Link>{user.role==='SUPER_USER'&&<Link href={'/recipes/edit?id='+r.id}>EDIT RECIPE<ArrowUpRight size={14}/></Link>}</nav>
+  <nav className="recipe-detail-navigation" aria-label="Recipe navigation"><Link href="/recipes"><ArrowLeft size={15}/>Recipe library</Link>{can(user,'recipes.edit')&&!r.archivedAt&&<Link href={'/recipes/edit?id='+r.id}>EDIT RECIPE<ArrowUpRight size={14}/></Link>}</nav>
+  {r.archivedAt&&<section className="recipe-archive-notice" role="status"><div><strong>Archived recipe</strong><p>Kept for reference. Restore it to return it to active recipe selections.</p></div>{can(user,'recipes.restore')&&<RecipeActionForm action={restoreRecipeFormAction}><input type="hidden" name="id" value={r.id}/><button className="btn">Restore Recipe</button></RecipeActionForm>}</section>}
   <header className={"recipe-identity"+(r.hasImage?'':' recipe-identity-no-photo')}>
    <div className="recipe-identity-photo">{r.hasImage?<img src={'/recipes/'+r.id+'/image?v='+encodeURIComponent(r.imageVersion)} alt={r.name} width={208} height={156}/>:<div><Utensils size={26} strokeWidth={1.2}/><span>No image</span></div>}</div>
    <div className="recipe-identity-copy"><p className="eyebrow">{r.typeName}{!r.visible&&<span className="recipe-hidden-label">Hidden</span>}</p><h1 className="page-title">{r.name}</h1><dl className="recipe-identity-facts"><div><dt>Prep time</dt><dd>Not recorded</dd></div><div><dt>Yield</dt><dd>Not recorded</dd></div><div><dt>Recipe cost</dt><dd>Not available</dd></div></dl></div>

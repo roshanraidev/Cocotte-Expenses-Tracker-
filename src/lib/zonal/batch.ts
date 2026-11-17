@@ -1,8 +1,10 @@
 import 'server-only';
+import {reportErrorMessage} from './report-errors';
+import { salesIdentity } from './sales-identity';
 import type { PrismaClient } from '@/generated/prisma/client';
 import type { SalesActor } from '../sales-service';
 import { assertAdmin } from '../policy';
-import { dateKey,dateValue } from '../dates';
+import { dateKey,dateValue,validDateKey,londonToday } from '../dates';
 import { syncDates } from './batch-dates';
 import { decryptCredentials } from './crypto';
 import { PARSONS_GREEN } from './connection-service';
@@ -15,6 +17,13 @@ export async function startBatch(prisma:PrismaClient,actor:SalesActor,mode:strin
  assertAdmin(actor.role);
  const range=syncDates(mode,from,to);
  if(!range.dates.length)throw new ZonalError(range.message);
+ return startDateBatch(prisma,actor,range.dates);
+}
+export async function startDateBatch(prisma:PrismaClient,actor:SalesActor,requested:string[]){
+ assertAdmin(actor.role);
+ if(!Array.isArray(requested)||!requested.length||requested.length>31||requested.some(d=>!validDateKey(d)||d>=londonToday()))throw new ZonalError('Choose up to 31 completed business dates.');
+ const dates=[...new Set(requested)].sort();
+ const range={dates,from:dates[0],to:dates.at(-1)!};
  return prisma.$transaction(async tx=>{
   await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id = ${actor.restaurantId} FOR UPDATE`;
   // A dead process cannot leave a restaurant permanently locked. Retain all completed results.
@@ -62,7 +71,7 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
     const day=await tx.zonalSyncDay.findUnique({where:{batchId_date:{batchId:id,date:dateValue(date)}}});
     if(!day||day.status!=='PENDING')return;
     if(result.code!=='REPORT_EXTRACTED'||!result.report){
-     await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:result.code,checkedAt:new Date()}});return;
+     await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:result.failureReason??result.code,checkedAt:new Date()}});return;
     }
     let report;
     try{report=validateReport(result.report,batch.branch,date);}catch{await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:'REPORT_INVALID',checkedAt:new Date()}});return;}
@@ -72,14 +81,14 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
     const prior=await tx.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:day.date,status:'APPROVED'},orderBy:{completedAt:'desc'}});
     const hash=fingerprint(report);
     await tx.zonalConnection.update({where:{restaurantId:actor.restaurantId},data:{loginVerifiedAt:new Date(),reportAccessVerifiedAt:new Date(),lastResultCode:'REPORT_EXTRACTED'}});
-    if(prior&&prior.fingerprint===hash&&sale?.version===prior.salesVersion+1&&sale.amountPence===BigInt(report.net)){
+    if(prior&&salesIdentity(report.net,hash,sale,prior)==='ALREADY_IMPORTED'&&sale?.version===prior.salesVersion+1){
      await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'UNCHANGED',attempted:true,previewId:prior.id,checkedAt:new Date()}});return;
     }
     const newest=await tx.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:day.date,status:'PREVIEW'},orderBy:[{createdAt:'desc'},{id:'desc'}]});
     const reusable=newest&&newest.fingerprint===hash&&newest.salesVersion===(sale?.version??0)&&Date.now()-newest.createdAt.getTime()<25*60000;
     const preview=reusable?newest:await tx.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:day.date,branch:batch.branch,source:'ZONAL_BROWSER',payload:report,fingerprint:hash,salesVersion:sale?.version??0,previousPence:sale?.amountPence}});
     const assessment=await previewAssessment(tx,actor.restaurantId,preview);
-    await tx.zonalSyncDay.update({where:{id:day.id},data:{status:assessment.canApprove?(sale?'CHANGED':'NEW'):'BLOCKED',attempted:true,previewId:preview.id,checkedAt:new Date()}});
+    await tx.zonalSyncDay.update({where:{id:day.id},data:{status:assessment.alreadyImported?'UNCHANGED':assessment.canApprove?(sale?'CHANGED':'NEW'):'BLOCKED',attempted:true,previewId:preview.id,checkedAt:new Date()}});
 
    });
   });
@@ -132,8 +141,8 @@ export async function batchOverview(prisma:PrismaClient,actor:SalesActor){
    const assessment=preview&&preview.status==='PREVIEW'?await previewAssessment(prisma,actor.restaurantId,preview):null;
    let report=assessment?.report??null;
    if(preview&&!report)try{report=validateReport(reportInput(preview.payload as Parameters<typeof reportInput>[0]),batch.branch,dateKey(day.date));}catch{}
-   const status=preview?.status==='CANCELLED'?'BLOCKED':day.status==='UNCHANGED'?'UNCHANGED':preview?.status==='APPROVED'?'APPROVED':assessment?assessment.state==='expired'?'EXPIRED':assessment.canApprove?(assessment.conflict?'CHANGED':'NEW'):'BLOCKED':day.status;
-   const error=preview?.status==='CANCELLED'?'This preview was cancelled. Fetch the date again to create a new review.':day.errorCode==='CANCELLED'?'Cancelled before this date completed.':day.errorCode==='INTERRUPTED'?'Sync interrupted; fetch this date again.':day.errorCode?loginMessages[day.errorCode as keyof typeof loginMessages]??'Report could not be retrieved.':null;
+   const status=preview?.status==='CANCELLED'?'BLOCKED':(day.status==='UNCHANGED'||assessment?.alreadyImported)?'UNCHANGED':preview?.status==='APPROVED'?'APPROVED':assessment?assessment.state==='expired'?'EXPIRED':assessment.canApprove?(assessment.conflict?'CHANGED':'NEW'):'BLOCKED':day.status;
+   const error=preview?.status==='CANCELLED'?'This preview was cancelled. Fetch the date again to create a new review.':day.errorCode==='CANCELLED'?'Cancelled before this date completed.':day.errorCode==='INTERRUPTED'?'Sync interrupted; fetch this date again.':day.errorCode?(loginMessages[day.errorCode as keyof typeof loginMessages]??reportErrorMessage(day.errorCode))??'Report could not be retrieved.':null;
    days.push({id:day.id,date:dateKey(day.date),status,attempted:day.attempted,previewId:preview?.id??null,previous:preview?.previousPence?.toString()??null,report,issues:assessment?.issues??[],eligible:assessment?.canApprove??false,reasonRequired:assessment?.reasonRequired??false,error,approvalError:day.approvalError});
   }
   rows.push({id:batch.id,branch:batch.branch,from:dateKey(batch.from),to:dateKey(batch.to),status:batch.status,createdAt:batch.createdAt.toISOString(),finishedAt:batch.finishedAt?.toISOString()??null,days});
@@ -147,16 +156,17 @@ export async function approveBatch(prisma:PrismaClient,actor:SalesActor,id:strin
  if(!batch)throw new ZonalError('Batch not found for this restaurant.');
  if(batch.status==='RUNNING')throw new ZonalError('Wait for fetching to finish before approval.');
  if(ids.some(previewId=>!batch.days.some(day=>day.previewId===previewId&&day.status!=='UNCHANGED')))throw new ZonalError('Invalid batch selection.');
- let approved=0,failed=0;
+ let approved=0,failed=0,skipped=0;
  for(const previewId of ids){
   try{
-   await resolveImport(prisma,actor,previewId,false,overwrite,reason);
+   const outcome=await resolveImport(prisma,actor,previewId,false,overwrite,reason);
+   if(outcome.startsWith('Already Imported')){await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{status:'UNCHANGED',approvalError:null}});skipped++;continue;}
    await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{status:'APPROVED',approvalError:null}});approved++;
   }catch(error){
    const message=error instanceof ZonalError?error.message:'Approval failed safely; refresh and review this date.';
    await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{approvalError:message}});failed++;
   }
  }
- return {approved,failed};
+ return {approved,failed,skipped};
 }
 export type BatchOverview=Awaited<ReturnType<typeof batchOverview>>;

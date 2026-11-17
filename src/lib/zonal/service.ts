@@ -23,17 +23,20 @@ async function writePreview(prisma:PrismaClient|Prisma.TransactionClient,actor:S
   const restaurant=await prisma.restaurant.findUniqueOrThrow({where:{id:actor.restaurantId}});
   if(restaurant.currency!=='GBP')throw new ZonalError('This restaurant is not configured for GBP.');
   const sale=await prisma.dailySales.findUnique({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue(report.date)}}});
+  const prior=await prisma.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:dateValue(report.date),status:'APPROVED'},orderBy:{completedAt:'desc'}});
+  if(prior&&sale?.version===prior.salesVersion+1&&prior.fingerprint===fingerprint(report)&&sale.amountPence===BigInt(report.net))return prior.id;
   const record=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue(report.date),branch:report.branch,source,payload:report,fingerprint:fingerprint(report),salesVersion:sale?.version??0,previousPence:sale?.amountPence}});
   return record.id;
 }
-export async function fetchAndPreview(prisma:PrismaClient,actor:SalesActor,date:string,runner=zonalAdapter.extract){
+export async function fetchAndPreview(prisma:PrismaClient,actor:SalesActor,date:string,runner=zonalAdapter.extract,latest=false){
   assertAdmin(actor.role);
   if(!validDateKey(date)||date>londonToday())throw new ZonalError('Choose a valid reporting date that is not in the future.');
   const branch=await mappedBranch(prisma,actor.restaurantId);
   if(branch!==PARSONS_GREEN)throw new ZonalError('Map this restaurant to 003 – Parsons Green before fetching.');
   const state=await connectZonal(prisma,actor,undefined,(id,credentials)=>runner(id,credentials,branch,date));
   if(!state.report)throw new ZonalError(state.message);
-  const report=validateReport(state.report,branch,date);
+  const report=validateReport(state.report,branch,latest?state.report.date:date);
+  if(report.date>date)throw new ZonalError('The report date exceeds the requested completed date.');
   return prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id = ${actor.restaurantId} FOR UPDATE`;
     const connection=await tx.zonalConnection.findUnique({where:{restaurantId:actor.restaurantId},select:{revision:true,encryptedCredentials:true,branch:true}});
@@ -42,7 +45,7 @@ export async function fetchAndPreview(prisma:PrismaClient,actor:SalesActor,date:
   });
 }
 
-export async function resolveImport(prisma: PrismaClient, actor: SalesActor, id: string, cancel: boolean, overwrite: boolean, reason: string) {
+export async function resolveImport(prisma: PrismaClient, actor: SalesActor, id: string, cancel: boolean, overwrite: boolean, reason: string, durable?:{dayId:string;jobId:string;token:string}) {
   assertAdmin(actor.role);
   if (id.length > 100) throw new ZonalError('Invalid preview.');
   return prisma.$transaction(async tx => {
@@ -61,7 +64,14 @@ export async function resolveImport(prisma: PrismaClient, actor: SalesActor, id:
     const date=dateKey(record.date);
     const weekStart=dateValue(mondayOf(date));
     await tx.$queryRaw`SELECT id FROM "WeeklyForecast" WHERE "restaurantId" = ${actor.restaurantId} AND "weekStart" = ${weekStart} FOR UPDATE`;
-    const assessment=await previewAssessment(tx,actor.restaurantId,record);
+    if(durable){
+      if(!await tx.user.count({where:{id:actor.id,restaurantId:actor.restaurantId,active:true,role:'SUPER_USER'}}))throw new ZonalError('Bulk approval permissions have been revoked.');
+      await tx.$queryRaw`SELECT id FROM "ZonalSalesJob" WHERE id=${durable.jobId} FOR UPDATE`;
+      const evidence=await tx.zonalSalesJobDay.findFirst({where:{id:durable.dayId,jobId:durable.jobId,previewId:id,fingerprint:record.fingerprint,date:record.date,status:'APPROVAL_QUEUED',job:{restaurantId:actor.restaurantId,actorId:actor.id,phase:'APPROVE',status:'RUNNING',leaseToken:durable.token,leaseUntil:{gt:new Date()}}}});
+      if(!evidence)throw new ZonalError('Durable approval authorization expired or changed.');
+    }
+    const assessment=await previewAssessment(tx,actor.restaurantId,record,new Date(),!!durable);
+    if(assessment.alreadyImported)return 'Already Imported; no financial changes made.';
     const blocker=assessment.issues.find(issue=>issue.blocking);
     if(blocker)throw new ZonalError(blocker.message);
     if(!assessment.report)throw new ZonalError('Report validation failed. Fetch a new preview.');
@@ -71,7 +81,7 @@ export async function resolveImport(prisma: PrismaClient, actor: SalesActor, id:
     const where={restaurantId_date:{restaurantId:actor.restaurantId,date:record.date}};
     const sale=await tx.dailySales.findUnique({where});
     const saved = sale
-      ? await tx.dailySales.update({ where, data: { amountPence: BigInt(report.net), version: { increment: 1 } } })
+      ? await tx.dailySales.update({ where:{...where,version:sale.version}, data: { amountPence: BigInt(report.net), version: { increment: 1 } } })
       : await tx.dailySales.create({ data: { restaurantId: actor.restaurantId, date: record.date, amountPence: BigInt(report.net) } });
     await tx.zonalImport.update({ where: { id }, data: { status: 'APPROVED', completedAt: new Date() } });
     await tx.auditLog.create({ data: { restaurantId: actor.restaurantId, actorId: actor.id, action: 'ZONAL_SALES_IMPORTED', entity: 'DailySales', entityId: saved.id, before: { pence: sale?.amountPence.toString() ?? null }, after: { importId: id, source: record.source, ...report }, reason: reason.trim().slice(0, 500) || null } });

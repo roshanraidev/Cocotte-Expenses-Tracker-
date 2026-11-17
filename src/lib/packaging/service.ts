@@ -1,4 +1,5 @@
 import 'server-only';
+import {can,packagingPermission} from '../permissions';
 import {z} from 'zod';
 import type {Prisma,PrismaClient} from '@/generated/prisma/client';
 import type {SalesActor} from '../sales-service';
@@ -12,10 +13,11 @@ export class PackagingError extends Error{}
 const str=z.string().trim().min(1).max(200);
 const date=z.string().refine(validDateKey,'Choose a valid date.');
 const json=(v:unknown):Prisma.InputJsonValue=>JSON.parse(JSON.stringify(v,(_,x)=>typeof x==='bigint'?x.toString():x));
-function admin(actor:SalesActor){if(actor.role!=='SUPER_USER')throw new PackagingError('Only Super Users can manage catalogue links or void invoices.');}
+
 async function lock(tx:Prisma.TransactionClient,restaurantId:string){await tx.$queryRaw`SELECT "restaurantId" FROM "RestaurantSettings" WHERE "restaurantId"=${restaurantId} FOR UPDATE`;}
 async function audit(tx:Prisma.TransactionClient,actor:SalesActor,action:string,entityId:string,before:unknown,after:unknown,reason?:string){await tx.auditLog.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,action,entity:'Packaging',entityId,...(before?{before:json(before)}:{}),after:json(after),reason}});}
 export async function registerInvoice(prisma:PrismaClient,actor:SalesActor,raw:unknown,file?:{bytes:Uint8Array;filename:string;mime:string},today=londonToday()){
+ if(!can(actor,'purchasing.create'))throw new PackagingError('You do not have permission to register invoices.');
  const v=z.object({supplierId:z.string().max(200).optional(),orderDate:date.optional(),deliveryDate:date.optional(),submissionKey:z.uuid()}).parse(raw);
  if((v.orderDate&&v.orderDate>today)||(v.deliveryDate&&v.deliveryDate>today)||(v.orderDate&&v.deliveryDate&&v.deliveryDate<v.orderDate))throw new PackagingError('Use received invoices: order and delivery dates must be today or earlier, with delivery on or after ordering.');
  let document;
@@ -26,6 +28,7 @@ export async function registerInvoice(prisma:PrismaClient,actor:SalesActor,raw:u
  await audit(tx,actor,'PACKAGING_INVOICE_REGISTERED',invoice.id,null,{supplierId:v.supplierId,orderDate:v.orderDate,deliveryDate:v.deliveryDate,document:document?{filename:document.filename,sha256:document.sha256}:null});return invoice;});
 }
 export async function saveReview(prisma:PrismaClient,actor:SalesActor,id:string,version:number,raw:unknown,confirm:boolean,today=londonToday()){
+ if(!can(actor,'purchasing.edit')||confirm&&!can(actor,'purchasing.approve'))throw new PackagingError('You do not have permission to save or confirm this invoice.');
  const simple=(raw as {simpleReview?:boolean})?.simpleReview===true;
  if(simple){
   const input=z.object({lines:z.array(z.object({sourceIndex:z.number().int().min(-1).optional(),description:z.string(),quantity:z.string(),lineNet:z.string()}).passthrough()).max(150)}).passthrough().parse(raw);
@@ -84,7 +87,7 @@ export async function saveReview(prisma:PrismaClient,actor:SalesActor,id:string,
  });
 }
 export async function catalogueOperation(prisma:PrismaClient,actor:SalesActor,operation:string,raw:Record<string,unknown>){
- admin(actor);
+ if(!can(actor,packagingPermission(operation)))throw new PackagingError('You do not have permission for this catalogue operation.');
  return prisma.$transaction(async tx=>{await lock(tx,actor.restaurantId);
  if(operation==='void'){const v=z.object({id:str,reason:z.string().trim().min(3).max(500)}).parse(raw);const row=await tx.packagingInvoice.findFirstOrThrow({where:{id:v.id,restaurantId:actor.restaurantId,status:'CONFIRMED'}});await tx.packagingInvoice.update({where:{id:row.id},data:{status:'VOIDED',version:{increment:1}}});await audit(tx,actor,'PACKAGING_INVOICE_VOIDED',row.id,{status:row.status},{status:'VOIDED'},v.reason);return;}
  if(operation==='product'){const v=z.object({name:str,category:z.enum(['PACKAGING','CHEMICAL']),unit:z.string().trim().max(60),packSize:z.string().trim().max(60)}).parse(raw);const row=await tx.packagingProduct.upsert({where:{restaurantId_nameKey_unit_packSize_category:{restaurantId:actor.restaurantId,nameKey:keyOf(v.name),unit:keyOf(v.unit),packSize:keyOf(v.packSize),category:v.category}},create:{...v,restaurantId:actor.restaurantId,nameKey:keyOf(v.name),unit:keyOf(v.unit),packSize:keyOf(v.packSize),verified:true},update:{verified:true}});await audit(tx,actor,'PACKAGING_PRODUCT_CREATED',row.id,null,v);return;}

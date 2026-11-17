@@ -46,6 +46,8 @@ beforeAll(async () => {
   await pg.exec('CREATE TABLE "Restaurant" (id TEXT PRIMARY KEY, name TEXT NOT NULL)');
   await pg.exec(readFileSync('prisma/migrations/20260926193000_add_recipes/migration.sql', 'utf8'));
   await pg.exec(readFileSync('prisma/migrations/20261012120000_recipe_specials_components/migration.sql', 'utf8'));
+  await pg.exec(readFileSync('prisma/migrations/20261112000100_recipe_archive/migration.sql','utf8'));
+  await pg.exec('CREATE TABLE "AuditLog" (id TEXT PRIMARY KEY,"restaurantId" TEXT,"actorId" TEXT,action TEXT,entity TEXT,"entityId" TEXT,before JSONB,after JSONB,"createdAt" TIMESTAMP)');
   await pg.exec(`INSERT INTO "Restaurant" (id,name) VALUES ('restaurant','Test'),('other','Other');
     INSERT INTO "RecipeType" (id,"restaurantId",name,"updatedAt") VALUES ('type','restaurant','Test',now()),('other-type','other','Other',now());`);
   mocks.query.mockImplementation(async (sql: Prisma.Sql) => (await pg.query(sql.text, sql.values)).rows);
@@ -93,11 +95,11 @@ it('keeps general users view-only and restaurant boundaries intact', async () =>
   mocks.session.mockResolvedValue({ user: { restaurantId: 'other', role: 'SUPER_USER', active: true }, expiresAt: new Date(Date.now() + 60000) });
   const crossRestaurant = form('Protected', 'Changed | 1 | Each', id);
   crossRestaurant.set('typeId', 'other-type');
-  await expect(saveRecipe(crossRestaurant)).rejects.toThrow('redirect:/recipes');
+  await expect(saveRecipe(crossRestaurant)).rejects.toThrow('archived or unavailable');
   expect((await recipe('restaurant', id, true))?.ingredients).toHaveLength(8);
   mocks.session.mockResolvedValue({ user: { restaurantId: 'restaurant', role: 'CHEF', active: true }, expiresAt: new Date(Date.now() + 60000) });
-  await expect(saveRecipe(form('Protected', '', id))).rejects.toThrow('redirect:/dashboard');
-  await expect(RecipeEditor({ searchParams: Promise.resolve({ id }) })).rejects.toThrow('redirect:/dashboard');
+  await expect(saveRecipe(form('Protected', '', id))).rejects.toThrow('redirect:/access-denied');
+  await expect(RecipeEditor({ searchParams: Promise.resolve({ id }) })).rejects.toThrow('redirect:/access-denied');
   const detail = renderToStaticMarkup(await RecipePage({ params: Promise.resolve({ id }) }));
   expect(detail).toContain('Oil - Rapeseed');
   expect(detail).not.toContain('EDIT RECIPE');
@@ -175,7 +177,7 @@ it('preserves both legacy preparation sections in one editor and saves long numb
   expect(preparationMethod((await recipe('restaurant', id, true))!)).toBe(long);
 });
 
-it('supports all search results, visibility, category management and confirmed deletion with view-only permissions', async () => {
+it('supports all search results, visibility, category management and recoverable archiving with view-only permissions', async () => {
   const { recipes, recipeTypes } = await import('@/lib/recipes');
   const { saveRecipeType, deleteRecipeType, deleteRecipe } = await import('@/app/(protected)/recipes/actions');
   const { default: RecipesPage } = await import('@/app/(protected)/recipes/page');
@@ -201,7 +203,7 @@ it('supports all search results, visibility, category management and confirmed d
   expect(await recipe('restaurant', hiddenId)).toBeNull();
   mocks.session.mockResolvedValue({ user: { restaurantId: 'restaurant', role: 'CHEF', active: true }, expiresAt: new Date(Date.now() + 60000) });
   for (const action of [saveRecipe, deleteRecipe, saveRecipeType, deleteRecipeType]) {
-    await expect(action(hide)).rejects.toThrow('redirect:/dashboard');
+    await expect(action(hide)).rejects.toThrow('redirect:/access-denied');
   }
   await expect(RecipePage({ params: Promise.resolve({ id }) })).rejects.toThrow('not found');
   expect((await GET(new Request('http://localhost'), { params: Promise.resolve({ id: hiddenId }) })).status).toBe(404);
@@ -209,12 +211,13 @@ it('supports all search results, visibility, category management and confirmed d
   expect(generalList).not.toContain('Hidden workflow');
   expect(generalList).not.toContain('Hidden category recipe');
   expect(generalList).not.toContain('ADD RECIPE');
-  mocks.session.mockResolvedValue({ user: { restaurantId: 'restaurant', role: 'SUPER_USER', active: true }, expiresAt: new Date(Date.now() + 60000) });
-  await deleteRecipe(hide);
-  expect(await recipe('restaurant', id, true)).toBeNull();
-  await deleteRecipeType(category);
-  expect(await recipe('restaurant', hiddenId, true)).toBeNull();
-  expect((await recipeTypes('restaurant', true)).some(t => t.id === type.id)).toBe(false);
+  mocks.session.mockResolvedValue({ user: { id:'admin',restaurantId: 'restaurant', role: 'SUPER_USER', active: true }, expiresAt: new Date(Date.now() + 60000) });
+  await expect(deleteRecipe(hide)).rejects.toThrow('redirect:/recipes?notice=archived');
+  expect((await recipe('restaurant',id,true))?.archivedAt).not.toBeNull();
+  expect((await recipes('restaurant',true)).some(r=>r.id===id)).toBe(false);
+  await expect(deleteRecipeType(category)).rejects.toThrow('contains active or archived recipes');
+  expect(await recipe('restaurant',hiddenId,true)).not.toBeNull();
+  expect((await recipeTypes('restaurant',true)).some(t=>t.id===type.id)).toBe(true);
 });
 
 it('requires confirmation before submitting recipe and category deletion', async () => {
@@ -337,7 +340,7 @@ it('rejects self links, duplicate links, direct and indirect loops and rolls bac
   expect((await recipeComponents('restaurant', a))[0].children[0].recipe.id).toBe(c);
   expect(await recipeComponents('restaurant', c)).toEqual([]);
   const newRecipe = form('Invalid new component', ''); newRecipe.set('componentsIncluded', 'true'); newRecipe.append('componentIds', 'missing-id');
-  await expect(saveRecipe(newRecipe)).rejects.toThrow('existing component recipes');
+  await expect(saveRecipe(newRecipe)).rejects.toThrow('active component recipes');
   expect((await pg.query('SELECT id FROM "Recipe" WHERE name=\'Invalid new component\'')).rows).toHaveLength(0);
 });
 
@@ -379,9 +382,9 @@ it('keeps staff view-only and excludes hidden components and their descendants, 
   expect((await weeklySpecials('restaurant',false)).specials.some(s=>s.recipeId===hidden)).toBe(false);
   expect((await recipeComponents('restaurant',root,true)).map(n=>n.recipe.id)).toEqual([hidden,visible]);
   mocks.session.mockResolvedValue({user:{restaurantId:'restaurant',role:'CHEF',active:true},expiresAt:new Date(Date.now()+60000)});
-  for(const action of [saveRecipe,saveWeeklySpecial,removeWeeklySpecial,setWeeklySpecialsEnabled])await expect(action(special)).rejects.toThrow('redirect:/dashboard');
-  await expect(specialFormAction({error:''},special)).rejects.toThrow('redirect:/dashboard');
-  await expect(RecipeEditor({searchParams:Promise.resolve({id:root})})).rejects.toThrow('redirect:/dashboard');
+  for(const action of [saveRecipe,saveWeeklySpecial,removeWeeklySpecial,setWeeklySpecialsEnabled])await expect(action(special)).rejects.toThrow('redirect:/access-denied');
+  await expect(specialFormAction({error:''},special)).rejects.toThrow('redirect:/access-denied');
+  await expect(RecipeEditor({searchParams:Promise.resolve({id:root})})).rejects.toThrow('redirect:/access-denied');
   const detail = renderToStaticMarkup(await RecipePage({params:Promise.resolve({id:root})}));
   expect(detail).toContain('Visible component');
   for(const secret of ['Secret sauce','Hidden ingredient','Hidden allergen','Secret branch stock'])expect(detail).not.toContain(secret);
@@ -391,27 +394,24 @@ it('keeps staff view-only and excludes hidden components and their descendants, 
   await pg.exec(`UPDATE "RecipeType" SET visible=true WHERE id='type'`);
 });
 
-it('removes special and component references gracefully when a referenced recipe or category is deleted', async () => {
-  const { deleteRecipe, deleteRecipeType } = await import('@/app/(protected)/recipes/actions');
-  const { saveWeeklySpecial } = await import('@/app/(protected)/recipes/special-actions');
-  const { recipeComponents, weeklySpecials, componentLinks } = await import('@/lib/recipe-features');
-  const root = await save(form('Deletion parent', 'Keep parent | 1 | Each'));
-  const component = await save(form('Deletion sauce', '')), child = await save(form('Deletion stock', ''));
-  const link = (id: string,name:string,ids:string[])=>{const data=form(name,'',id);data.set('componentsIncluded','true');ids.forEach(value=>data.append('componentIds',value));return data;};
-  await save(link(root,'Deletion parent',[component]));await save(link(component,'Deletion sauce',[child]));
-  const special=new FormData();special.set('recipeId',component);special.set('status','PUBLISHED');await saveWeeklySpecial(special);
-  const removal=new FormData();removal.set('id',component);await deleteRecipe(removal);
-  expect(await recipeComponents('restaurant',root,true)).toEqual([]);
-  expect((await weeklySpecials('restaurant',true)).specials.some(s=>s.recipeId===component)).toBe(false);
-  expect((await componentLinks('restaurant')).some(l=>l.recipeId===component||l.componentId===component)).toBe(false);
-  expect(await recipe('restaurant',root,true)).not.toBeNull();expect(await recipe('restaurant',child,true)).not.toBeNull();
-  await pg.exec(`INSERT INTO "RecipeType"(id,"restaurantId",name,"updatedAt") VALUES('deletion-category','restaurant','Deletion category',now())`);
-  const categoryRecipe=form('Category component','');categoryRecipe.set('typeId','deletion-category');const categoryId=await save(categoryRecipe);
-  await save(link(root,'Deletion parent',[categoryId]));special.set('recipeId',categoryId);await saveWeeklySpecial(special);
-  removal.set('id','deletion-category');await deleteRecipeType(removal);
-  expect(await recipeComponents('restaurant',root,true)).toEqual([]);
-  expect((await weeklySpecials('restaurant',true)).specials.some(s=>s.recipeId===categoryId)).toBe(false);
-  expect(await recipe('restaurant',root,true)).not.toBeNull();
+it('preserves special and component references when a referenced recipe is archived and blocks category deletion',async()=>{
+ const {deleteRecipe,deleteRecipeType}=await import('@/app/(protected)/recipes/actions');
+ const {saveWeeklySpecial}=await import('@/app/(protected)/recipes/special-actions');
+ const {recipeComponents,weeklySpecials,componentLinks}=await import('@/lib/recipe-features');
+ const root=await save(form('Archive parent','Keep parent | 1 | Each'));
+ const component=await save(form('Archive sauce','')),child=await save(form('Archive stock',''));
+ const link=(id:string,name:string,ids:string[])=>{const data=form(name,'',id);data.set('componentsIncluded','true');ids.forEach(v=>data.append('componentIds',v));return data;};
+ await save(link(root,'Archive parent',[component]));await save(link(component,'Archive sauce',[child]));
+ const special=new FormData();special.set('recipeId',component);special.set('status','PUBLISHED');await saveWeeklySpecial(special);
+ const before=await componentLinks('restaurant'),removal=new FormData();removal.set('id',component);
+ await expect(deleteRecipe(removal)).rejects.toThrow('redirect:/recipes?notice=archived');
+ expect((await recipeComponents('restaurant',root,true))[0].recipe.id).toBe(component);
+ expect((await weeklySpecials('restaurant',true)).specials.find(s=>s.recipeId===component)?.recipeVisible).toBe(false);
+ expect(await componentLinks('restaurant')).toEqual(before);
+ await save(link(root,'Archive parent',[component]));expect(await componentLinks('restaurant')).toEqual(before);
+ expect(await recipe('restaurant',root,true)).not.toBeNull();expect(await recipe('restaurant',child,true)).not.toBeNull();
+ removal.set('id','type');await expect(deleteRecipeType(removal)).rejects.toThrow('contains active or archived recipes');
+ expect(await recipe('restaurant',component,true)).not.toBeNull();
 });
 
 it('keeps graph edits atomic when opposing component changes are submitted together', async () => {
@@ -439,3 +439,50 @@ it('applies the additive migration without changing existing recipes, photo byte
     expect((await existing.query('SELECT * FROM "RecipeComponent"')).rows).toEqual([]);
   } finally {await existing.close();}
 }, 30000);
+
+it('archives and restores persisted recipe content, photos and timestamps without modifying original fields',async()=>{
+ const {deleteRecipe,restoreRecipe}=await import('@/app/(protected)/recipes/actions');
+ const {recipes,recipeArchiveCounts}=await import('@/lib/recipes');
+ const data=form('Recoverable photo recipe','Oil | 0.25 | Lt');data.set('allergens','Mustard');data.set('method','1. Keep this exact instruction.');
+ const id=await save(data);await pg.query('UPDATE "Recipe" SET "imageBytes"=$1,"imageMime"=$2 WHERE id=$3',[new Uint8Array([1,2,3,4]),'image/png',id]);
+ const snapshot=async()=>(await pg.query<{content:unknown}>('SELECT to_jsonb(r)-\'archivedAt\' AS content FROM "Recipe" r WHERE id=$1',[id])).rows[0].content;
+ const before=await snapshot(),f=new FormData();f.set('id',id);
+ await expect(deleteRecipe(f)).rejects.toThrow('redirect:/recipes?notice=archived');
+ const at=(await recipe('restaurant',id,true))!.archivedAt;expect(at).toBeInstanceOf(Date);expect(await snapshot()).toEqual(before);
+ expect((await recipes('restaurant',true)).some(r=>r.id===id)).toBe(false);
+ expect((await recipes('restaurant',true,undefined,'archived')).some(r=>r.id===id)).toBe(true);
+ expect((await recipeArchiveCounts('restaurant')).archived).toBeGreaterThan(0);
+ await expect(deleteRecipe(f)).rejects.toThrow('redirect:/recipes?notice=archived');expect((await recipe('restaurant',id,true))?.archivedAt).toEqual(at);
+ await expect(restoreRecipe(f)).rejects.toThrow('redirect:/recipes?notice=restored');expect((await recipe('restaurant',id,true))?.archivedAt).toBeNull();expect(await snapshot()).toEqual(before);
+ expect((await recipes('restaurant',true)).some(r=>r.id===id)).toBe(true);
+ const audit=await pg.query<{action:string}>('SELECT action FROM "AuditLog" WHERE "entityId"=$1 ORDER BY "createdAt"',[id]);expect(audit.rows.map(r=>r.action)).toEqual(['RECIPE_ARCHIVED','RECIPE_RESTORED']);
+});
+it('serializes repeated archive requests and preserves a single archive audit event',async()=>{
+ const {setRecipeArchived}=await import('@/lib/recipe-archive');const {db}=await import('@/lib/db');
+ const id=await save(form('Concurrent archive','Original | 1 | Each')),actor={id:'admin',restaurantId:'restaurant',role:'SUPER_USER' as const};
+ expect((await Promise.all([setRecipeArchived(db(),actor,id,true),setRecipeArchived(db(),actor,id,true)])).sort()).toEqual([false,true]);
+ expect((await pg.query<{n:number}>('SELECT count(*)::int n FROM "AuditLog" WHERE "entityId"=$1',[id])).rows[0].n).toBe(1);
+});
+it('rejects foreign-restaurant and Chef archive/restore requests without changing records',async()=>{
+ const {setRecipeArchived}=await import('@/lib/recipe-archive');const {db}=await import('@/lib/db');const id=await save(form('Permission archive',''));
+ await expect(setRecipeArchived(db(),{id:'chef',restaurantId:'restaurant',role:'CHEF'},id,true)).rejects.toThrow('Only Super Users');
+ for(const archived of [true,false])await expect(setRecipeArchived(db(),{id:'admin',restaurantId:'other',role:'SUPER_USER'},id,archived)).rejects.toThrow('unavailable');
+ expect((await recipe('restaurant',id,true))?.archivedAt).toBeNull();
+});
+it('blocks archived recipes from new component links and weekly specials while retaining existing links',async()=>{
+ const {deleteRecipe}=await import('@/app/(protected)/recipes/actions');const {saveWeeklySpecial}=await import('@/app/(protected)/recipes/special-actions');
+ const parent=await save(form('New selection parent','')),component=await save(form('Archived selection',''));
+ const f=new FormData();f.set('id',component);await expect(deleteRecipe(f)).rejects.toThrow('redirect:/recipes?notice=archived');
+ const data=form('New selection parent','',parent);data.set('componentsIncluded','true');data.append('componentIds',component);
+ await expect(saveRecipe(data)).rejects.toThrow('active component recipes');
+ const special=new FormData();special.set('recipeId',component);special.set('status','PUBLISHED');await expect(saveWeeklySpecial(special)).rejects.toThrow('Restore this archived recipe');
+ await expect(saveRecipe(form('Archived selection','Changed',component))).rejects.toThrow('Restore it before editing');
+});
+it('supports archive search/category/sorting and keeps archived management restricted to Super Users',async()=>{
+ const {deleteRecipe}=await import('@/app/(protected)/recipes/actions');const {default:RecipesPage}=await import('@/app/(protected)/recipes/page');
+ for(const name of ['ZZ Archived entry','AA Archived entry']){const id=await save(form(name,'')),f=new FormData();f.set('id',id);await expect(deleteRecipe(f)).rejects.toThrow('redirect:/recipes?notice=archived');}
+ const html=renderToStaticMarkup(await RecipesPage({searchParams:Promise.resolve({tab:'archived',q:'Archived entry',type:'type',sort:'name'})}));
+ expect(html.indexOf('AA Archived entry')).toBeLessThan(html.indexOf('ZZ Archived entry'));expect(html).toContain('Restore Recipe');expect(html).toContain('Date archived');
+ mocks.session.mockResolvedValue({user:{id:'chef',restaurantId:'restaurant',role:'CHEF',active:true},expiresAt:new Date(Date.now()+60000)});
+ const chef=renderToStaticMarkup(await RecipesPage({searchParams:Promise.resolve({tab:'archived',q:'Archived entry'})}));expect(chef).not.toContain('Restore Recipe');expect(chef).not.toContain('AA Archived entry');
+});

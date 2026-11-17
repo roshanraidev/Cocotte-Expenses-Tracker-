@@ -1,9 +1,10 @@
 import { ChefHat, ShieldCheck, CalendarDays } from 'lucide-react';
 import { LoginForm } from '@/components/login-form';
+import {permittedHome} from '@/lib/navigation';
 import { currentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 export default async function LoginPage() {
-  if (await currentUser()) redirect('/dashboard');
+  const user=await currentUser();if(user)redirect(permittedHome(user));
   return <main className="grid min-h-dvh lg:grid-cols-2">
     <section className="relative flex flex-col justify-between bg-[#163b2e] p-8 text-white sm:p-14 lg:p-20">
       <div className="flex items-center gap-3"><ChefHat size={30}/><span className="text-lg font-semibold">Restaurant Food Cost Tracker</span></div>

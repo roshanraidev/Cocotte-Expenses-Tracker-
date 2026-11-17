@@ -1,0 +1,4 @@
+import Link from 'next/link';
+import {requireUser} from '@/lib/auth';
+import {permittedHome,navigationItems} from '@/lib/navigation';
+export default async function AccessDenied(){const user=await requireUser(),links=navigationItems(user),home=permittedHome(user);return <section className="card max-w-2xl"><h1 className="page-title">{links.length?'Access restricted':'No sections available'}</h1><p className="my-4">{links.length?'Your account does not have permission for this area. Choose an available section from the menu or ask your administrator to review your access.':'No sections are currently available for your account. Please contact your administrator.'}</p>{links.length>0&&<Link className="btn" href={home}>Go to {links.find(l=>l.href===home)?.label??'your home page'}</Link>}</section>;}

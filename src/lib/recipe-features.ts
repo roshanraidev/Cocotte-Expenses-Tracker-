@@ -20,8 +20,8 @@ export async function replaceComponents(tx: Prisma.TransactionClient, restaurant
   if (new Set(componentIds).size !== componentIds.length) throw new RecipeFeatureError('Each component recipe can only be added once.');
   if (componentIds.includes(recipeId)) throw new RecipeFeatureError('A recipe cannot link to itself.');
   if (componentIds.length) {
-    const owned = await tx.$queryRaw<{id: string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE "restaurantId"=${restaurantId} AND id IN (${Prisma.join(componentIds)})`);
-    if (owned.length !== componentIds.length) throw new RecipeFeatureError('Choose existing component recipes from your restaurant.');
+    const owned = await tx.$queryRaw<{id: string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE "restaurantId"=${restaurantId} AND id IN (${Prisma.join(componentIds)}) AND ("archivedAt" IS NULL OR EXISTS(SELECT 1 FROM "RecipeComponent" c WHERE c."restaurantId"=${restaurantId} AND c."recipeId"=${recipeId} AND c."componentId"="Recipe".id))`);
+    if (owned.length !== componentIds.length) throw new RecipeFeatureError('Choose active component recipes from your restaurant. Existing archived links can be retained.');
   }
   const edges = await tx.$queryRaw<ComponentLink[]>(Prisma.sql`SELECT "recipeId","componentId",position FROM "RecipeComponent" WHERE "restaurantId"=${restaurantId} AND "recipeId"<>${recipeId}`);
   const graph = new Map<string, string[]>();
@@ -40,7 +40,7 @@ export async function replaceComponents(tx: Prisma.TransactionClient, restaurant
 }
 export async function recipeComponents(restaurantId: string, recipeId: string, includeHidden = false): Promise<ComponentNode[]> {
   // Authorize each node before including its name, ingredients, method or allergens in the result.
-  const allowed = new Map((await recipes(restaurantId, includeHidden)).map(r => [r.id, r]));
+  const allowed = new Map((await recipes(restaurantId, includeHidden,undefined,'all')).map(r => [r.id, r]));
   if (!allowed.has(recipeId)) return [];
   const edges = await componentLinks(restaurantId);
   const graph = new Map<string, string[]>();
@@ -64,11 +64,11 @@ export async function weeklySpecials(restaurantId: string, includeDrafts = false
   const enabled = settings[0]?.weeklySpecialsEnabled ?? false;
   if (!enabled && !includeDrafts) return { enabled, specials: [] as SpecialRow[] };
   const specials = await db().$queryRaw<SpecialRow[]>(Prisma.sql`
-    SELECT s.id,s."recipeId",s.status,s."startDate"::text AS "startDate",s."endDate"::text AS "endDate",r.name AS "recipeName",(r.visible AND t.visible) AS "recipeVisible"
+    SELECT s.id,s."recipeId",s.status,s."startDate"::text AS "startDate",s."endDate"::text AS "endDate",r.name AS "recipeName",(r.visible AND t.visible AND r."archivedAt" IS NULL) AS "recipeVisible"
     FROM "WeeklySpecial" s JOIN "Recipe" r ON r.id=s."recipeId" AND r."restaurantId"=s."restaurantId"
     JOIN "RecipeType" t ON t.id=r."typeId" AND t."restaurantId"=r."restaurantId"
     WHERE s."restaurantId"=${restaurantId}
-    ${includeDrafts ? Prisma.empty : Prisma.sql`AND s.status='PUBLISHED' AND r.visible=true AND t.visible=true AND (s."startDate" IS NULL OR s."startDate"<=${today}::date) AND (s."endDate" IS NULL OR s."endDate">=${today}::date)`}
+    ${includeDrafts ? Prisma.empty : Prisma.sql`AND s.status='PUBLISHED' AND r."archivedAt" IS NULL AND r.visible=true AND t.visible=true AND (s."startDate" IS NULL OR s."startDate"<=${today}::date) AND (s."endDate" IS NULL OR s."endDate">=${today}::date)`}
     ORDER BY s."createdAt",s.id`);
   return { enabled, specials };
 }

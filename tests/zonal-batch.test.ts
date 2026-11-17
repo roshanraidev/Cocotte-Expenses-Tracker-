@@ -17,7 +17,7 @@ describe('explicit per-day batch approval orchestration',()=>{
  it('reports partial success without losing the eligible date',async()=>{
   const {prisma,update}=fixture();
   resolve.mockImplementation(async(_db,_actor,id)=>{if(id==='blocked')throw new ZonalError('Weekly forecast required');return 'Approved';});
-  expect(await approveBatch(prisma,actor,'batch',['new','blocked'],false,'Historical test')).toEqual({approved:1,failed:1});
+  expect(await approveBatch(prisma,actor,'batch',['new','blocked'],false,'Historical test')).toEqual({approved:1,failed:1,skipped:0});
   expect(update).toHaveBeenCalledWith({where:{batchId:'batch',previewId:'new'},data:{status:'APPROVED',approvalError:null}});
   expect(update).toHaveBeenCalledWith({where:{batchId:'batch',previewId:'blocked'},data:{approvalError:'Weekly forecast required'}});
  });
@@ -50,7 +50,13 @@ describe('explicit per-day batch approval orchestration',()=>{
  });
  it('does not persist unexpected database or authentication exception details',async()=>{
   const {prisma,update}=fixture();resolve.mockRejectedValue(new Error('sensitive database exception'));
-  expect(await approveBatch(prisma,actor,'batch',['new'],false,'')).toEqual({approved:0,failed:1});
+  expect(await approveBatch(prisma,actor,'batch',['new'],false,'')).toEqual({approved:0,failed:1,skipped:0});
   expect(JSON.stringify(update.mock.calls)).not.toContain('sensitive');
  });
+ it('counts a report saved by another user as skipped rather than approved',async()=>{
+  const {prisma,update}=fixture();resolve.mockResolvedValue('Already Imported; no financial changes made.');
+  expect(await approveBatch(prisma,actor,'batch',['new'],false,'')).toEqual({approved:0,failed:0,skipped:1});
+  expect(update).toHaveBeenCalledWith({where:{batchId:'batch',previewId:'new'},data:{status:'UNCHANGED',approvalError:null}});
+ });
+
 });

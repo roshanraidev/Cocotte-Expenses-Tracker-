@@ -1,3 +1,4 @@
+export const FINANCIAL_ERROR_CODES=['REPORT_MONEY_INVALID','REPORT_TOTALS_MISMATCH','REPORT_BRANCH_UNAUTHORISED','REPORT_STRUCTURE_CHANGED','REPORT_TITLE_MISSING','REPORT_BRANCH_MISMATCH','REPORT_DATE_MISMATCH','REPORT_PAGINATION_UNSUPPORTED','REPORT_FIELD_MISSING','REPORT_COUNT_INVALID','REPORT_DEPARTMENTS_MISSING','REPORT_DEPARTMENT_LAYOUT_CHANGED','REPORT_DEPARTMENTS_CHANGED','REPORT_UNCLASSIFIED_DEPARTMENT','REPORT_SUMMARY_MISSING','REPORT_RENDER_TIMEOUT'];
 // Pure parser for the live-observed single-page Financial Detail layout.
 // Never includes report content in errors. Cost and Cost % are deliberately ignored.
 const BRANCH = '003 – Parsons Green';
@@ -22,7 +23,7 @@ export function parseFinancialDetail(text,expectedBranch,date){
   if(report.filter(line=>/^Date Range:/.test(line)).length!==1||!report.includes(`Date Range: ${label} - ${label}`))fail('REPORT_DATE_MISMATCH');
   if(!report.some(line=>/^Page\s+1\s+of\s+1$/.test(line)))fail('REPORT_PAGINATION_UNSUPPORTED');
   const summaryEnd=report.indexOf('Sales Type');
-  if(summaryEnd<0)fail('REPORT_STRUCTURE_CHANGED');
+  if(summaryEnd<0)fail(report.some(line=>['Net Sales','Gross Sales','VAT'].includes(line))?'REPORT_STRUCTURE_CHANGED':'REPORT_SUMMARY_MISSING');
   const summary=report.slice(0,summaryEnd);
   function field(label){const at=summary.indexOf(label);if(at<0||summary.lastIndexOf(label)!==at||!summary[at+1])fail('REPORT_FIELD_MISSING');return summary[at+1];}
   const grossBefore=pounds(field('Gross Sales Incl Disc'));
@@ -33,10 +34,19 @@ export function parseFinancialDetail(text,expectedBranch,date){
   if(dept<0||report.lastIndexOf('Sales Departments')!==dept)fail('REPORT_DEPARTMENTS_MISSING');
   const headings=['Sales Departments','Quantity','Gross Sales Incl Disc','Discount','Gross Sales','VAT','Net Sales','% Of Total','Cost','Cost %'];
   if(headings.some((name,i)=>report[dept+i]!==name))fail('REPORT_DEPARTMENT_LAYOUT_CHANGED');
-  const seen=new Set();let row=dept+headings.length;
+  const seen=new Set();let seenMiscellaneous=false;let row=dept+headings.length;
   while(row<report.length){
     const name=report[row];
     if(name==='Totals')break;
+    // Live-verified: some dates include an explicit zero-net Miscellaneous row.
+    // Its reported zero contributes nothing; never reclassify a nonzero amount as food.
+    if(name==='Miscellaneous'){
+      if(seenMiscellaneous)fail('REPORT_DEPARTMENTS_CHANGED');seenMiscellaneous=true;
+      const values=[2,3,4,5,6].map(offset=>pence(pounds(report[row+offset])));
+      if(values[0]-values[1]!==values[2]||values[2]-values[3]!==values[4])fail('REPORT_TOTALS_MISMATCH');
+      if(values[4]!==0n)fail('REPORT_UNCLASSIFIED_DEPARTMENT');
+      row+=headings.length;continue;
+    }
     const key=({Food:'food',Drink:'drink',SPECIALS:'specials'})[name];
     if(!key||seen.has(key))fail('REPORT_DEPARTMENTS_CHANGED');
     seen.add(key);result[key]=pounds(report[row+6]);row+=headings.length;

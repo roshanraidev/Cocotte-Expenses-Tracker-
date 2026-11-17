@@ -15,7 +15,7 @@ const sessionId='runtime-check-'+randomBytes(12).toString('hex');
 let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
 async function snapshot(){
  const result:Record<string,string>={};
- for(const table of ['DailySales','WeeklyForecast','ForecastDay','SupplierOrder','SupplierOrderItem','PurchaseInvoice','Recipe','User','ZonalConnection']){
+ for(const table of ['DailySales','WeeklyForecast','ForecastDay','SupplierOrder','SupplierOrderItem','PurchaseInvoice','Recipe','User','ZonalConnection','FoodCostPeriod','FoodCostPreview']){
   const row=await pool.query(`SELECT md5(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'')) AS digest FROM "${table}" t`);
   result[table]=row.rows[0].digest;
  }
@@ -46,7 +46,7 @@ try{
    if(stack)console.error('CONFIRMED SERVER STACK:',stack);
   }
  });
- for(const [path,heading] of [['/admin/integrations/zonal','Zonal Connect'],['/dashboard','Dashboard'],['/sales','Daily Sales'],['/admin/planning','Weekly Planning'],['/reports','Reports'],['/recipes','Recipes']]){
+ for(const [path,heading] of [['/admin/integrations/zonal','Zonal Connect'],['/admin/stock-food-cost','Stock & Food Cost'],['/stock','Stock & planning'],['/dashboard','Dashboard'],['/sales','Daily Sales'],['/admin/planning','Weekly Planning'],['/reports','Reports'],['/recipes','Recipes']]){
   const response=await page.goto(base+path);
   expect(response?.status()).toBe(200);
   if(path==='/dashboard'){

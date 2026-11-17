@@ -3,7 +3,7 @@ import type { Prisma,PrismaClient } from '@/generated/prisma/client';
 import { dateValue,mondayOf,londonToday } from '../dates';
 import { mappedBranch } from './connection-service';
 import { assessPreview,type PreviewRecord } from './approval';
-export async function previewAssessment(prisma:Prisma.TransactionClient|PrismaClient,restaurantId:string,record:PreviewRecord,now=new Date()){
+export async function previewAssessment(prisma:Prisma.TransactionClient|PrismaClient,restaurantId:string,record:PreviewRecord,now=new Date(),durableStaging=false){
  const date=record.date;
  const [branch,restaurant,week,sale,prior,newest]=[
   await mappedBranch(prisma as PrismaClient,restaurantId),
@@ -13,5 +13,5 @@ export async function previewAssessment(prisma:Prisma.TransactionClient|PrismaCl
   await prisma.zonalImport.findFirst({where:{restaurantId,date,status:'APPROVED'},orderBy:{completedAt:'desc'}}),
   await prisma.zonalImport.findFirst({where:{restaurantId,date,status:'PREVIEW'},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{id:true}}),
  ] as const;
- return assessPreview(record,{branch,currency:restaurant.currency,today:londonToday(now),now,week:week?{finalizedAt:week.finalizedAt,dayCount:week._count.days}:null,sale,priorFingerprint:prior&&sale?.version===prior.salesVersion+1?prior.fingerprint:undefined,newestId:newest?.id});
+ return assessPreview(record,{branch,currency:restaurant.currency,today:londonToday(now),now,week:week?{finalizedAt:week.finalizedAt,dayCount:week._count.days}:null,sale,priorFingerprint:prior&&sale?.version===prior.salesVersion+1?prior.fingerprint:undefined,newestId:newest?.id,durableStaging});
 }

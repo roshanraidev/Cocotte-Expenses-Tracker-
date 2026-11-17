@@ -1,11 +1,12 @@
+import {can} from '@/lib/permissions';
 import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await requirePermission('recipes.view');
   const { id } = await params;
-  const canViewHidden = user.role === 'SUPER_USER';
+  const canViewHidden = can(user,'recipes.edit')||can(user,'recipes.create')||can(user,'recipes.archive')||can(user,'recipes.restore');
 
   const rows = await db().$queryRaw<{ imageMime: string | null; imageBytes: Uint8Array | null }[]>(
     Prisma.sql`

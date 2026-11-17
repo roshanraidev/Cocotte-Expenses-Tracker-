@@ -40,8 +40,8 @@ describe('sales planning', () => {
   });
   it('denies Chef forecast writes and corrections before touching the database', async () => {
     const prisma = {} as PrismaClient;
-    await expect(saveWeeklyForecast(prisma, actor, { weekStart: monday, version: 0, amounts: Array(7).fill(100n), reason: '' })).rejects.toThrow('Only Super Users');
-    await expect(saveActualSales(prisma, actor, { date: monday, version: 1, amount: 100n, reason: 'Correction' }, monday)).rejects.toThrow('Only Super Users');
+    await expect(saveWeeklyForecast(prisma, actor, { weekStart: monday, version: 0, amounts: Array(7).fill(100n), reason: '' })).rejects.toThrow('permission');
+    await expect(saveActualSales(prisma, actor, { date: monday, version: 1, amount: 100n, reason: 'Correction' }, monday)).rejects.toThrow('permission');
     await expect(saveActualSales(prisma, actor, { date: '2026-09-15', version: 0, amount: 100n, reason: '' }, monday)).rejects.toThrow('future date');
   });
 });

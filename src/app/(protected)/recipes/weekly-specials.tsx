@@ -10,7 +10,7 @@ function SpecialFields({ choices, special }: { choices: RecipeRow[]; special?: S
   return <>
     {special && <input name="id" type="hidden" value={special.id}/>}
     <div className="grid gap-3 sm:grid-cols-3">
-      <label>Special recipe<select name="recipeId" defaultValue={special?.recipeId ?? ''} required><option value="" disabled>Select an existing recipe</option>{choices.map(r => <option key={r.id} value={r.id}>{r.name} · {r.typeName}{!r.visible ? ' (Hidden)' : ''}</option>)}</select></label>
+      <label>Special recipe<select name="recipeId" defaultValue={special?.recipeId ?? ''} required><option value="" disabled>Select an existing recipe</option>{special&&!choices.some(r=>r.id===special.recipeId)&&<option value={special.recipeId}>{special.recipeName} (Archived)</option>}{choices.map(r => <option key={r.id} value={r.id}>{r.name} · {r.typeName}{!r.visible ? ' (Hidden)' : ''}</option>)}</select></label>
       <label>Start date (optional)<input name="startDate" type="date" defaultValue={special?.startDate ?? ''}/></label>
       <label>End date (optional)<input name="endDate" type="date" defaultValue={special?.endDate ?? ''}/></label>
     </div>
@@ -39,7 +39,7 @@ export default async function WeeklySpecials({ restaurantId, admin }: { restaura
       {!!specials.length && <div className="mt-5 space-y-3">{specials.map(s => <details className="rounded-lg border border-stone-200 p-3" key={s.id}>
         <summary className="cursor-pointer text-sm font-semibold">{s.recipeName} · {s.status === 'DRAFT' ? 'Draft' : active.some(a => a.id === s.id) ? 'Published · Active' : 'Published · Not currently active'} · Edit</summary>
         <div className="mt-3">
-          {!s.recipeVisible && <p className="page-description mb-3">This recipe or its category is hidden. Staff cannot see this special.</p>}
+          {!s.recipeVisible && <p className="page-description mb-3">This recipe is archived, or the recipe/category is hidden. Restore archived recipes before publishing. Existing special records are preserved.</p>}
           <RecipeActionForm action={specialFormAction}><SpecialFields choices={choices} special={s}/></RecipeActionForm>
           <form action={removeWeeklySpecial} className="mt-3"><input type="hidden" name="id" value={s.id}/><ConfirmDelete className="text-xs underline" message={'Remove special “'+s.recipeName+'”? Its recipe will be kept.'} label="Remove special"/></form>
         </div>
