@@ -9,3 +9,10 @@ export function availableReportDates(labels,latestCompleted){
   return Number.isFinite(+date)&&date.toISOString().slice(0,10)===key&&key<=latestCompleted?[key]:[];
  }))].sort();
 }
+
+/** Observed report options only; never request another week or fill missing dates with zero. */
+export function weeklyAvailability(requested,offered){
+ const first=requested[0],last=requested.at(-1);
+ const latest=offered.filter(date=>date>=first&&date<=last).sort().at(-1)??null;
+ return {latest,fetch:requested.filter(date=>latest!==null&&date<=latest),unavailable:requested.filter(date=>latest===null||date>latest)};
+}

@@ -38,3 +38,16 @@ export function navigationItems(actor:PermissionActor,path=''):NavigationItem[]{
 }
 /** Navigation policy only: each destination retains its own server authorization. */
 export function permittedHome(actor:PermissionActor){return accessible(actor,food)[0]?.href??'/access-denied';}
+
+export function navigationActive(href:string,path:string){
+ return href==='/admin'?path===href||path.startsWith('/admin/forecasts')||path.startsWith('/admin/food-cost')||path.startsWith('/admin/integrations'):path===href||(href!=='/packaging'&&path.startsWith(href+'/'));
+}
+/** Mobile shortcuts reuse the permitted workspace navigation; absent permissions omit links. */
+export function mobileDestinations(links:NavigationItem[]){
+ return [
+  {paths:['/dashboard','/packaging'],label:'Home'},
+  {paths:['/orders','/packaging/invoices'],label:'Purchases'},
+  {paths:['/recipes'],label:'Recipes'},
+  {paths:['/reports','/packaging/reports'],label:'Reports'},
+ ].flatMap(({paths,label})=>{const item=links.find(l=>paths.includes(l.href));return item?[{...item,label}]:[];});
+}

@@ -1,18 +1,33 @@
 'use client';
-import {useState,useTransition} from 'react';
+import {useEffect,useRef,useState,useTransition} from 'react';
+import {useRouter} from 'next/navigation';
 import Link from 'next/link';
-import {CalendarRange,RefreshCw} from 'lucide-react';
-import {weekLabel} from '@/lib/dates';
+import {RefreshCw} from 'lucide-react';
 import {weeklySyncRange} from '@/lib/zonal/weekly-range';
-import {syncWeeklyNetSales} from '@/app/(protected)/dashboard/weekly-sync-action';
-export function WeeklySalesSync({monday,today}:{monday:string;today:string}){
- const [notice,setNotice]=useState<{week:string;error:string;message:string}|null>(null),[pending,start]=useTransition();
- const range=weeklySyncRange(monday,today),current=notice?.week===monday?notice:null;
- return <section className="dashboard-sales-sync" aria-labelledby="weekly-net-sales-sync-title">
-  <div className="dashboard-sales-sync-top"><div><span className="sales-eyebrow"><CalendarRange size={15}/> SELECTED DASHBOARD WEEK</span><h2 id="weekly-net-sales-sync-title">Weekly Net Sales</h2><p>{weekLabel(monday)}</p><small>{range.dates.length?`${range.dates.length} completed reporting day${range.dates.length===1?'':'s'} · ${range.from}–${range.to}`:range.message}</small></div>
-  <button className="btn" disabled={pending||!range.dates.length} onClick={()=>start(async()=>{const week=monday;setNotice(null);try{setNotice({week,...await syncWeeklyNetSales(week)});}catch{setNotice({week,error:'Weekly sync could not start. Refresh and try again; no sales were approved.',message:''});}})}><RefreshCw size={16}/>{pending?'Starting weekly sync…':'Sync Weekly Net Sales'}</button></div>
-  <p className="sales-history-caption mt-3">Sync the selected week and check recent dates for corrections, then review and approve. Existing sales are protected; today and future dates are excluded.</p>
-  {current?.error&&<p role="alert" className="sales-history-message">{current.error}</p>}{current?.message&&<p role="status" className="sales-history-message">{current.message}</p>}
-  <Link className="sales-review-link mt-2" href={`/admin/integrations/zonal?date=${monday}#batch-sync`}>Review weekly reports and approvals →</Link>
- </section>;
+import type {WeeklySyncStatus} from '@/lib/zonal/weekly-sync-status';
+import {syncWeeklyNetSales,weeklySyncProgress} from '@/app/(protected)/dashboard/weekly-sync-action';
+const stamp=(value:string|null)=>value?new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/London'}).format(new Date(value)):'Not yet';
+export function WeeklySalesSync({monday,today,initial}:{monday:string;today:string;initial:WeeklySyncStatus}){
+ const router=useRouter(),[status,setStatus]=useState(initial),[previous,setPrevious]=useState(initial),[error,setError]=useState(''),[pending,start]=useTransition();
+ const seen=useRef(initial),range=weeklySyncRange(monday,today);
+ if(previous!==initial){setPrevious(initial);setStatus(initial);}
+ useEffect(()=>{
+  let active=true,busy=false;
+  const refresh=async()=>{if(busy||document.visibilityState!=='visible')return;busy=true;try{
+   const next=await weeklySyncProgress(monday);if(!active)return;const old=seen.current;seen.current=next;setStatus(next);
+   if(next&&old&&((next.approved!==old.approved)||(old.stage==='Sync Started'&&next.stage!=='Sync Started')))router.refresh();
+  }catch{if(active)setError('Sync status is unavailable. Refresh before starting another fetch.');}finally{busy=false;}};
+  const timer=setInterval(()=>void refresh(),status?.stage==='Sync Started'?2500:10000);
+  const focus=()=>void refresh();window.addEventListener('focus',focus);
+  return()=>{active=false;clearInterval(timer);window.removeEventListener('focus',focus);};
+ },[monday,router,status?.stage]);
+ return <div className="operational-sync" role="group" aria-label="Weekly sales sync">
+  <div className="operational-sync-action"><button className="btn" disabled={pending||status?.stage==='Sync Started'||!range.dates.length} onClick={()=>start(async()=>{
+   setError('');try{const result=await syncWeeklyNetSales(monday);if(result.error){setError(result.error);return;}const next=await weeklySyncProgress(monday);seen.current=next;setStatus(next);}catch{setError('Weekly sync could not start. No sales were approved.');}
+  })}><RefreshCw size={16}/>{pending?'Starting…':'Sync Weekly Net Sales'}</button><Link className="operational-text-link" href={`/admin/integrations/zonal?date=${monday}#batch-sync`}>Review &amp; approve</Link></div>
+  <div className="operational-sync-status" role="status" aria-live="polite">
+   {status?<><strong data-sync-stage>{status.stage}</strong><span>{status.fetchCompleted?'Fetch Completed · ':''}{status.partial?'Partial result · ':''}{status.checked}/{status.total} dates checked · {status.approved} approved{status.review?` · ${status.review} require review`:''}{status.failed?` · ${status.failed} failed`:''}{status.unavailable?` · ${status.unavailable} not yet offered by Zonal`:''}</span><small>Last fetch completed: {stamp(status.finishedAt)}{status.latestDate?` · Latest report: ${status.latestDate}`:''}{status.lastApprovedAt?` · Approved: ${stamp(status.lastApprovedAt)}`:''}</small></>:<span>{range.dates.length?'Fetch the selected week, then review before approval.':range.message}</span>}
+  </div>
+  {error&&<p role="alert" className="operational-sync-error">{error}</p>}
+ </div>;
 }

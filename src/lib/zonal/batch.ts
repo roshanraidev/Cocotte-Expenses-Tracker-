@@ -71,7 +71,7 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
     const day=await tx.zonalSyncDay.findUnique({where:{batchId_date:{batchId:id,date:dateValue(date)}}});
     if(!day||day.status!=='PENDING')return;
     if(result.code!=='REPORT_EXTRACTED'||!result.report){
-     await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:result.failureReason??result.code,checkedAt:new Date()}});return;
+     await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:result.failureReason!=='REPORT_AFTER_LATEST',errorCode:result.failureReason??result.code,checkedAt:new Date()}});return;
     }
     let report;
     try{report=validateReport(result.report,batch.branch,date);}catch{await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:'REPORT_INVALID',checkedAt:new Date()}});return;}
@@ -101,7 +101,8 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
   await tx.zonalSyncDay.updateMany({where:{batchId:id,status:'PENDING'},data:{status:'FAILED',errorCode:final.code==='AUTHENTICATED'?'INTERRUPTED':final.code}});
   const days=await tx.zonalSyncDay.findMany({where:{batchId:id}});
   const good=days.filter(day=>day.previewId).length;
-  const status=good===days.length?'COMPLETED':good?'PARTIAL':'FAILED';
+  const offered=days.filter(day=>day.errorCode!=='REPORT_AFTER_LATEST');
+  const status=good===offered.length?'COMPLETED':good?'PARTIAL':'FAILED';
   await tx.zonalConnection.updateMany({where:{restaurantId:actor.restaurantId,revision:batch.connectionRevision,encryptedCredentials:{not:null}},data:{lastResultCode:good?'REPORT_EXTRACTED':final.code,...(final.loginVerified?{loginVerifiedAt:new Date()}:{})}});
   await tx.zonalSyncBatch.update({where:{id},data:{status,finishedAt:new Date(),heartbeatAt:new Date()}});
   await tx.auditLog.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,action:'ZONAL_BATCH_FINISHED',entity:'ZonalSyncBatch',entityId:id,after:{status,retrieved:good,total:days.length}}});
@@ -141,7 +142,7 @@ export async function batchOverview(prisma:PrismaClient,actor:SalesActor){
    const assessment=preview&&preview.status==='PREVIEW'?await previewAssessment(prisma,actor.restaurantId,preview):null;
    let report=assessment?.report??null;
    if(preview&&!report)try{report=validateReport(reportInput(preview.payload as Parameters<typeof reportInput>[0]),batch.branch,dateKey(day.date));}catch{}
-   const status=preview?.status==='CANCELLED'?'BLOCKED':(day.status==='UNCHANGED'||assessment?.alreadyImported)?'UNCHANGED':preview?.status==='APPROVED'?'APPROVED':assessment?assessment.state==='expired'?'EXPIRED':assessment.canApprove?(assessment.conflict?'CHANGED':'NEW'):'BLOCKED':day.status;
+   const status=day.errorCode==='REPORT_AFTER_LATEST'?'UNAVAILABLE':preview?.status==='CANCELLED'?'BLOCKED':(day.status==='UNCHANGED'||assessment?.alreadyImported)?'UNCHANGED':preview?.status==='APPROVED'?'APPROVED':assessment?assessment.state==='expired'?'EXPIRED':assessment.canApprove?(assessment.conflict?'CHANGED':'NEW'):'BLOCKED':day.status;
    const error=preview?.status==='CANCELLED'?'This preview was cancelled. Fetch the date again to create a new review.':day.errorCode==='CANCELLED'?'Cancelled before this date completed.':day.errorCode==='INTERRUPTED'?'Sync interrupted; fetch this date again.':day.errorCode?(loginMessages[day.errorCode as keyof typeof loginMessages]??reportErrorMessage(day.errorCode))??'Report could not be retrieved.':null;
    days.push({id:day.id,date:dateKey(day.date),status,attempted:day.attempted,previewId:preview?.id??null,previous:preview?.previousPence?.toString()??null,report,issues:assessment?.issues??[],eligible:assessment?.canApprove??false,reasonRequired:assessment?.reasonRequired??false,error,approvalError:day.approvalError});
   }
@@ -160,7 +161,7 @@ export async function approveBatch(prisma:PrismaClient,actor:SalesActor,id:strin
  for(const previewId of ids){
   try{
    const outcome=await resolveImport(prisma,actor,previewId,false,overwrite,reason);
-   if(outcome.startsWith('Already Imported')){await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{status:'UNCHANGED',approvalError:null}});skipped++;continue;}
+   if(outcome.startsWith('Already')){await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{status:'UNCHANGED',approvalError:null}});skipped++;continue;}
    await prisma.zonalSyncDay.updateMany({where:{batchId:id,previewId},data:{status:'APPROVED',approvalError:null}});approved++;
   }catch(error){
    const message=error instanceof ZonalError?error.message:'Approval failed safely; refresh and review this date.';

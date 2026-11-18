@@ -55,3 +55,16 @@ describe('isolated worker boundary', () => {
   });
 
 });
+
+describe('selected-week worker availability mode',()=>{
+ it('uses one authenticated worker and returns unavailable dates without substituting a report',async()=>{
+  const {fetchZonalWeeklyBatch}=await import('@/lib/zonal/worker');
+  const child=childFixture(),onDay=vi.fn();
+  const promise=fetchZonalWeeklyBatch('weekly',credentials,['2026-11-02','2026-11-03'],onDay);
+  expect(vi.mocked(spawn).mock.calls[0][1]).toEqual(['scripts/zonal/worker.mjs','week','2026-11-02,2026-11-03']);
+  child.emit('message',{type:'batch-day',date:'2026-11-03',result:{code:'REPORT_DATE_UNAVAILABLE',loginVerified:true,failureReason:'REPORT_AFTER_LATEST'}});
+  child.emit('message',{code:'AUTHENTICATED',loginVerified:true});child.emit('exit',0);await promise;
+  expect(onDay).toHaveBeenCalledWith('2026-11-03',{code:'REPORT_DATE_UNAVAILABLE',loginVerified:true,failureReason:'REPORT_AFTER_LATEST'});
+  expect(spawn).toHaveBeenCalledOnce();
+ });
+});

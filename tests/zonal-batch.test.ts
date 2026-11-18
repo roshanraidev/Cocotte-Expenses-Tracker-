@@ -60,3 +60,5 @@ describe('explicit per-day batch approval orchestration',()=>{
  });
 
 });
+
+describe('repeated approval status',()=>{it('skips an already-approved preview instead of reporting a new import',async()=>{const {prisma}=fixture();resolve.mockResolvedValue('Already approved; no changes made.');expect(await approveBatch(prisma,actor,'batch',['new'],false,'')).toEqual({approved:0,failed:0,skipped:1});});});

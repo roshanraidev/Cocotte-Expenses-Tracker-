@@ -4,7 +4,7 @@ import type { ZonalCredentials } from './crypto';
 import { z } from 'zod';
 import {FINANCIAL_ERROR_CODES} from './financial-parser.mjs';
 import { ZonalError, validateReport } from './validation';
-import { validDateKey, londonToday } from '../dates';
+import { validDateKey, londonToday, mondayOf } from '../dates';
 export const diagnosticSchema = z.object({ type: z.literal('diagnostic'), stage: z.enum(['BROWSER_LAUNCH','LOGIN_PAGE','LOGIN_FORM','LOGIN_SUBMIT','LOGIN_VERIFY','NETWORK_POLICY','REPORT_NAVIGATION','REPORT_BRANCH','REPORT_START_DATE','REPORT_END_DATE','REPORT_RUN','REPORT_PARSE','CLEANUP']), reason: z.enum(['STARTED','OK','AUTHENTICATED','LOGIN_REJECTED','ACCESS_CONTROL','REPORT_CHANGED','BROWSER_FAILED','TIMEOUT','SUCCESS_MARKER_MISSING','EXTERNAL_AUTH_BLOCKED','EXTERNAL_ASSET_BLOCKED','UNRECOGNISED_POST_BLOCKED','METHOD_BLOCKED','NAVIGATION_FAILED','VALIDATION_FAILED']) }).strict();
 export const extractedReportSchema = z.object({ branch:z.literal('003 – Parsons Green'),date:z.string().refine(validDateKey),currency:z.literal('GBP'),...Object.fromEntries(['gross','discount','vat','net','food','drink','specials'].map(key=>[key,z.string().regex(/^\d{1,12}\.\d{2}$/)])),covers:z.string().regex(/^\d{1,9}$/),transactions:z.string().regex(/^\d{1,9}$/) }).strict();
 export const resultSchema = z.object({ code: z.enum(['AUTHENTICATED', 'LOGIN_UNVERIFIED', 'LOGIN_REJECTED', 'ACCESS_CONTROL', 'REPORT_CHANGED', 'NOT_CONFIGURED', 'BROWSER_FAILED', 'TIMEOUT', 'EXTRACTION_UNVERIFIED','REPORT_EXTRACTED','REPORT_INVALID','REPORT_DATE_UNAVAILABLE','STOCK_UNSUPPORTED']), failureReason:z.enum(FINANCIAL_ERROR_CODES).optional(),stockDiscovery:z.object({catalogueVerified:z.boolean(),folders:z.array(z.string().max(100).regex(/^[A-Za-z0-9 .,&()/%+–-]+$/)).max(40),reportNames:z.array(z.string().max(100).regex(/^[A-Za-z0-9 .,&()/%+–-]+$/)).max(40),extractionVerified:z.literal(false),reportOpened:z.boolean().optional(),parameterLabels:z.array(z.enum(['Start Date','End Date','Stock Date','Stocktake Date','Stock Period','Period','Profit Centre','Branch','Site'])).max(9).optional(),branchAvailable:z.boolean().optional()}).strict().optional(), report:extractedReportSchema.optional(), loginVerified:z.boolean().optional(), diagnostics: z.array(diagnosticSchema).max(40).optional(), discovery: z.object({ financialDetailVisible: z.boolean(), requestedBranchVisible: z.boolean() }).optional() }).strict().refine(result=>result.code==='REPORT_EXTRACTED'?!!result.report:!result.report);
@@ -43,7 +43,7 @@ export async function fetchZonalReport(restaurantId:string,credentials:ZonalCred
     return result;
   }finally{running.delete(restaurantId);}
 }
-export function runWorker(restaurantId: string, credentials: ZonalCredentials, request?:{branch:string;date:string;discovery?:'stock';latest?:boolean;dates?:string[];onDay?:(date:string,result:LoginResult)=>Promise<void>}): Promise<LoginResult> {
+export function runWorker(restaurantId: string, credentials: ZonalCredentials, request?:{branch:string;date:string;discovery?:'stock';latest?:boolean;dates?:string[];onDay?:(date:string,result:LoginResult)=>Promise<void>;weeklyOnly?:boolean}): Promise<LoginResult> {
   return new Promise(resolve => {
     // Child gets an allowlisted environment. Do not inherit DEBUG, PWDEBUG, tracing,
     // NODE_OPTIONS or application/database secrets. Credentials never appear in arguments.
@@ -53,7 +53,7 @@ export function runWorker(restaurantId: string, credentials: ZonalCredentials, r
     env.ZONAL_PASSWORD = credentials.password;
     let settled = false;
     let cancelled = false;
-    const child = spawn(process.execPath, ['scripts/zonal/worker.mjs', request?.discovery ? 'stock' : request?.latest ? 'latest' : request?.dates ? 'batch' : request ? 'extract' : 'login', ...(request ? [request.dates?.join(',')??request.date] : [])], { cwd: process.cwd(), env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    const child = spawn(process.execPath, ['scripts/zonal/worker.mjs', request?.discovery ? 'stock' : request?.latest ? 'latest' : request?.weeklyOnly ? 'week' : request?.dates ? 'batch' : request ? 'extract' : 'login', ...(request ? [request.dates?.join(',')??request.date] : [])], { cwd: process.cwd(), env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     let writes=Promise.resolve();
     let result: LoginResult = { code: 'BROWSER_FAILED' };
     const diagnostics: z.infer<typeof diagnosticSchema>[] = [];
@@ -102,5 +102,13 @@ export async function discoverZonalStock(restaurantId:string,credentials:ZonalCr
 export async function fetchLatestZonalReport(restaurantId:string,credentials:ZonalCredentials,latestCompleted:string):Promise<LoginResult>{
  if(running.has(restaurantId))throw new ZonalError('A Zonal browser job is already running.');
  try{return await runWorker(restaurantId,credentials,{branch:'003 – Parsons Green',date:latestCompleted,latest:true});}
+ finally{running.delete(restaurantId);}
+}
+
+/** Same authenticated worker; clamp only the selected week to observed report availability. */
+export async function fetchZonalWeeklyBatch(restaurantId:string,credentials:ZonalCredentials,dates:string[],onDay:(date:string,result:LoginResult)=>Promise<void>){
+ if(running.has(restaurantId))throw new ZonalError('A Zonal browser job is already running.');
+ if(!dates.length||dates.length>7||dates.some(d=>!validDateKey(d)||d>=londonToday()||mondayOf(d)!==mondayOf(dates[0])))throw new ZonalError('Invalid completed weekly dates.');
+ try{return await runWorker(restaurantId,credentials,{branch:'003 – Parsons Green',date:dates[0],dates,onDay,weeklyOnly:true});}
  finally{running.delete(restaurantId);}
 }
