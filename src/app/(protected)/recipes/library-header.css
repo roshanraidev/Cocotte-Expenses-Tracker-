@@ -1,0 +1,66 @@
+/* Only the library heading sticks; global navigation, recipe sheets and desktop stay unchanged. */
+.recipe-header-marker { height:0; pointer-events:none; }
+.recipe-heading-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.recipe-library .recipe-filter-shortcut { display:none; }
+
+@media (max-width:1023px) {
+  .recipe-library .recipe-mobile-heading {
+    position:sticky;
+    top:0;
+    z-index:20;
+    flex-wrap:wrap;
+    gap:10px;
+    padding:calc(12px + env(safe-area-inset-top, 0px)) 0 12px;
+    background:var(--background, #f6f5ef);
+    transition:padding 200ms ease, box-shadow 200ms ease;
+  }
+  .recipe-library .recipe-mobile-heading .page-title {
+    transition:font-size 200ms ease;
+  }
+  .recipe-library .recipe-mobile-heading .recipe-library-intro {
+    max-height:30px;
+    opacity:1;
+    overflow:hidden;
+    transition:max-height 200ms ease, opacity 180ms ease, margin 200ms ease;
+  }
+  .recipe-library .recipe-mobile-heading.is-compact {
+    padding-block:calc(6px + env(safe-area-inset-top, 0px)) 6px;
+    gap:6px;
+    box-shadow:0 8px 12px -12px #163b2e70;
+    border-color:#d2c7a9;
+  }
+  .recipe-library .recipe-mobile-heading.is-compact .page-title { font-size:23px; }
+  .recipe-library .recipe-mobile-heading.is-compact .recipe-library-intro {
+    max-height:0;
+    opacity:0;
+    margin-top:0;
+  }
+  .recipe-library .recipe-filter-shortcut {
+    display:inline-flex;
+    width:44px;
+    padding:8px;
+    flex-shrink:0;
+  }
+  .recipe-library #recipe-library-filters { scroll-margin-top:calc(164px + env(safe-area-inset-top, 0px)); }
+  .recipe-library #recipe-library-filters input { font-size:16px; }
+  .recipe-library .recipe-mobile-heading .btn:active { background:#e9eddf; color:#163b2e; }
+}
+
+@media (max-width:559px) {
+  .recipe-heading-identity, .recipe-heading-actions { width:100%; }
+  .recipe-heading-actions { flex-wrap:nowrap; align-items:center; }
+  .recipe-library .recipe-heading-actions .btn { padding-inline:10px; }
+  .recipe-library .recipe-heading-actions .recipe-filter-shortcut { margin-left:auto; }
+  .recipe-mobile-heading.is-viewer .recipe-heading-identity { width:auto; flex:1; }
+  .recipe-mobile-heading.is-viewer .recipe-heading-actions { width:auto; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .recipe-library .recipe-mobile-heading,
+  .recipe-library .recipe-mobile-heading .page-title,
+  .recipe-library .recipe-mobile-heading .recipe-library-intro { transition:none; }
+}
+@media print {
+  .recipe-library .recipe-mobile-heading { position:static; box-shadow:none; }
+  .recipe-library .recipe-filter-shortcut { display:none; }
+}
