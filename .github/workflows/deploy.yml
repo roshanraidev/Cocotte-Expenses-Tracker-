@@ -1,0 +1,44 @@
+name: Deploy Cocotte to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: cocotte-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$AWS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy to Lightsail
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+        run: |
+          ssh -o BatchMode=yes ubuntu@"$AWS_HOST" 'bash -se' <<'REMOTE'
+            set -e
+            cd /home/ubuntu/Cocotte-Expenses-Tracker-
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            npm ci
+            npm run build
+
+            sudo -n systemctl restart cocotte.service
+            sudo systemctl is-active --quiet cocotte.service
+          REMOTE
