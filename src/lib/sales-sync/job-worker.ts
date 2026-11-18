@@ -12,7 +12,7 @@ const authFailures=['LOGIN_REJECTED','LOGIN_UNVERIFIED','ACCESS_CONTROL','NOT_CO
 export type SalesJobDependencies={latest:typeof fetchLatestZonalReport;batch:typeof fetchZonalBatch};
 const defaults:SalesJobDependencies={latest:fetchLatestZonalReport,batch:fetchZonalBatch};
 export async function workSalesJob(prisma:PrismaClient,claim:{id:string;token:string},deps=defaults){
- const {id,token}=claim;const job=await ownedJob(prisma,id,token);if(!job)return;
+ const {id,token}=claim;const job=await ownedJob(prisma,id,token);if(!job||job.kind!=='DAILY')return;
  const user=await prisma.user.findFirst({where:{id:job.actorId,restaurantId:job.restaurantId,active:true,role:'SUPER_USER'},select:{id:true,restaurantId:true,role:true}});
  const release=async(status:string,lastError:string|null=null,wait=0)=>prisma.zonalSalesJob.updateMany({where:{id,leaseToken:token,status:'RUNNING'},data:{status,leaseToken:null,leaseUntil:wait?new Date(Date.now()+wait):null,lastError}});
  if(!user){await release('PAUSED','The requesting Super User is no longer authorised.');return;}

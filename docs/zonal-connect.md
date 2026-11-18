@@ -259,8 +259,8 @@ approvals, manual retries, same-ID corrections and audit, historical reasons,
 foreign restaurant denial, partial batch success and canonical financial
 totals. It does not modify the restaurant database or access Zonal.
 
-## Dashboard historical sales and daily sync
+## Dashboard daily and weekly sync — historical import retired
 
-The previous manual saved-plan/seven-day-click workflow has been replaced by a durable PostgreSQL queue and supervised Node worker. Use **Import All Historical Sales**, then one explicit bulk approval for eligible reports. The chart remains visible throughout. See [durable sales jobs](zonal-sales-jobs.md) for deployment, safety, daily incremental sync and verification details.
+**Sync Weekly Net Sales** retains the selected-week and recent correction pipeline. **Sync Zonal Sales** offers bounded daily incremental jobs with explicit review/approval and no dependency on historical-discovery metadata. See [daily sales jobs](zonal-sales-jobs.md).
 
-Live read-only Financial Detail verification found dates **2022-11-19** through **2026-11-12**, and validated reports at both endpoints. Intermediate dates are not assumed valid. No real multi-year backfill has been automatically approved during development.
+The one-time historical backfill and its bulk-approval/start/resume/retry actions are removed. Stored historical jobs, previews, audit history and approved financial records remain untouched. Approved-data sales trends and year comparisons remain available; these charts do not fetch reports from Zonal.

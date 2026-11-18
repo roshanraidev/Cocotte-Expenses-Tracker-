@@ -1,6 +1,6 @@
 # Production hosting: www.mrcocotte.com
 
-Prepared 17 November 2026. **Nothing has been deployed, purchased, migrated or changed in GoDaddy.** This is the current production runbook; older HOSTING.md describes general Node hosting and must not be treated as a Vercel launch checklist.
+Prepared 17 November 2026. Updated 18 November: historical import functionality retired; existing historical job/report records are retained. See [daily sales jobs](zonal-sales-jobs.md). **Nothing has been deployed, purchased, migrated or changed in GoDaddy.** This is the current production runbook; older HOSTING.md describes general Node hosting and must not be treated as a Vercel launch checklist.
 
 ## Decision and outstanding launch blockers
 
@@ -10,7 +10,7 @@ The application is **not yet ready for an unrestricted Vercel launch**:
 
 | Finding in the current code | Required before launch |
 | --- | --- |
-| Historical imports already have PostgreSQL jobs, leases, checkpoints and a separate worker. Weekly batches still use Next `after()` and delivery previews spawn a browser in the web process. | Extend the existing durable queue to those browser operations, preserving validation, approval and idempotency. Vercel requests should enqueue/poll; they must not own long-running Chromium processes. The supplied worker image currently runs historical sales jobs only. |
+| Daily incremental imports retain PostgreSQL jobs, leases, checkpoints and a separate worker. Historical backfill is disabled. Weekly batches still use Next `after()` and delivery previews spawn a browser in the web process. | Extend the existing durable queue to those browser operations, preserving validation, approval and idempotency. Vercel requests should enqueue/poll; they must not own long-running Chromium processes. The supplied worker image currently runs daily sales jobs only. |
 | Zonal admin route declares `maxDuration=900`; browser batches can take 15 minutes. | Offload them. Standard Pro Functions allow up to 800 seconds; extended duration is a separate beta, not a durability solution. Do not shorten financial operations just to satisfy deployment validation. |
 | Recipe uploads permit 5 MiB; invoice uploads permit 8 MiB; the application permits 10 MB Server Actions. Authenticated downloads return whole database files. | Vercel's normal Function payload ceiling is 4.5 MB. Implement private direct-to-object-storage upload/download transport (for example private Blob/S3), or an authenticated persistent upload service. Preserve existing images/documents and permissions. Raising Next's limit does not raise Vercel's limit. |
 | PDF/OCR uses native canvas, PDF.js and Tesseract, with up to 90 seconds of work. | Test assets/native libraries on the target Linux runtime, memory and bundle size. Move scanning into the worker if necessary; preserve the manual fallback. |
@@ -67,11 +67,11 @@ Reference: [PostgreSQL logical backup and restore](https://www.postgresql.org/do
 
 ## Worker setup — after blockers and staging tests
 
-For the Vercel deployment, **all Playwright entry points** need a persistent worker boundary, not just historical imports:
+For the Vercel deployment, **all Playwright entry points** need a persistent worker boundary, including ordinary sales and delivery operations:
 
 | Operation | Current implementation | Vercel preparation still needed |
 | --- | --- | --- |
-| Historical jobs and queued incremental sales jobs | `scripts/workers/sales.ts`, `src/lib/sales-history/job-worker.ts` | Existing durable consumer; deploy/test the Linux image and shared database safely. |
+| Queued daily incremental sales jobs | `scripts/workers/sales.ts`, `src/lib/sales-sync/job-worker.ts` | Existing durable consumer; deploy/test the Linux image and shared database safely. |
 | Selected-week/date batches | `batch-actions.ts` uses `after()` to call `runBatch` | Enqueue into the persistent worker instead of completing the browser batch inside a web Function. |
 | Connection verification, single-day report fetch and latest-date discovery | `src/lib/zonal/worker.ts` spawns `scripts/zonal/worker.mjs` | Add authenticated, restaurant-scoped job request/results; retain cooldowns and approval checks. Saving encrypted credentials does not verify login. |
 | Supplier delivery previews | `src/lib/zonal/delivery-preview.ts` spawns `scripts/zonal/delivery-worker.mjs` | Offload the existing reader and return its verified preview; keep purchase registration gated and duplicate-safe. |
@@ -82,10 +82,10 @@ The current Dockerfile does not implement these missing handoffs. Merely setting
 1. Create one persistent Background Worker, with repository-root build context and `ops/Dockerfile.worker`. Do not create it yet. Start with approximately 1 CPU / 2 GB RAM; measure Chromium memory before increasing concurrency.
 2. Set production secrets at runtime. Do not bake `.env`, a database dump or credentials into an image. Container build needs no live database or Zonal login. The image runs `npm run worker:sales`; it has no public HTTP port.
 3. Configure automatic restart, monitoring and enough shutdown grace for current leases/checkpoints. The health command checks a recent database heartbeat for the initial single-worker setup. Do not let a probe execute a Zonal login.
-4. Test process termination/resume, lease expiry, cooldown/rate limiting, credential decryption and partial failures using disposable data. Never reinitialize historical job progress or replace staged reports. Restore and continue the original job identities only after verifying them.
+4. Test process termination/resume, lease expiry, cooldown/rate limiting, credential decryption and partial failures using disposable data. Never reinitialize historical job progress or replace staged reports. Daily jobs can resume after verification; retained historical jobs must never be resumed.
 5. Enable a single production consumer only at approved cutover. Monitor stale leases, failed dates, pending approval and last successful report access. Keep import approval explicit. No scheduled daily sync is enabled by these files.
 
-Historical imports can run without an open browser because PostgreSQL stores their progress; this does **not** yet apply to every weekly/delivery web action. A separate worker deployment must use the same compatible source release and schema as the web app.
+Daily incremental jobs can run without an open browser because PostgreSQL stores their progress; this does **not** yet apply to every weekly/delivery web action. A separate worker deployment must use the same compatible source release and schema as the web app.
 
 ## Authentication and production verification
 
@@ -160,8 +160,8 @@ Before launch, verify on isolated staging data:
 - Clean locked install, Prisma generation, TypeScript, lint, tests, production build and target Linux worker build.
 - Dashboard, sales, reports, recipes/photos, suppliers/purchases/documents, user management and permission-based landing pages.
 - Approved totals match the source by restaurant/date; no previews enter financial totals; forecasts, purchasing budgets and deductions unchanged.
-- Weekly, daily/incremental and historical Zonal workflows keep duplicate/correction/approval protections. Delivery sync remains matched-supplier-only and cannot import uncertain invoices. Use read-only live verification only when authorized; do not import real purchases as a deployment test.
-- Resume preserved historical progress; no second job or overlapping source/cloud worker. Charts use approved data and refresh after isolated test approval.
+- Weekly and daily/incremental Zonal workflows keep duplicate/correction/approval protections; historical backfill stays disabled. Delivery sync remains matched-supplier-only and cannot import uncertain invoices. Use read-only live verification only when authorized; do not import real purchases as a deployment test.
+- Verify retained historical jobs are never claimed or resumed; no overlapping legacy source/cloud worker. Charts use approved data and refresh after isolated test approval.
 - Large upload/download transport, OCR fallback, credential update/test and expiry behavior on the real platform.
 - HTTPS, www/apex behavior, cookie security, cross-restaurant denial, Guest/Viewer limitations, Super User access and no secret leakage.
 - Provider backup/PITR, restore drill, alerts for web errors/worker heartbeat/database capacity, and rollback owner identified.

@@ -34,6 +34,31 @@ jobs:
             set -e
             cd /home/ubuntu/Cocotte-Expenses-Tracker-
 
+            # Refuse to replace code underneath a legacy worker. No job/database cleanup.
+            if pgrep -f '[n]pm run worker:sales|[s]cripts/workers/sales\.(ts|js)' >/dev/null; then
+              echo 'Deployment blocked: stop the existing sales worker before this daily-only release.'
+              exit 1
+            fi
+            for account in ubuntu root; do
+              if ! cron_entries="$(sudo -n crontab -u "$account" -l 2>&1)"; then
+                if ! printf '%s' "$cron_entries" | grep -q 'no crontab'; then
+                  echo 'Deployment blocked: unable to inspect worker cron configuration.'
+                  exit 1
+                fi
+                cron_entries=''
+              fi
+              if printf '%s' "$cron_entries" | grep -Eq 'resume-preserved-history|sales-history-check|worker:sales|scripts/workers/sales'; then
+                echo 'Deployment blocked: review the existing sales worker/backfill cron entry.'
+                exit 1
+              fi
+            done
+            timers="$(systemctl list-timers --all --no-legend)"
+            if printf '%s' "$timers" | grep -Eiq 'cocotte.*(histor|backfill)'; then
+              echo 'Deployment blocked: historical sales timer still configured.'
+              exit 1
+            fi
+            echo 'Legacy worker preflight passed; no matching worker process, cron entry or historical timer.'
+
             git fetch origin main
             git reset --hard origin/main
 
