@@ -2,6 +2,8 @@
 
 A Next.js / React / TypeScript application with Tailwind CSS, PostgreSQL, Prisma and secure email/password authentication. Currency: GBP. Business timezone: Europe/London.
 
+For the proposed **www.mrcocotte.com** deployment, use the [production hosting runbook](docs/PRODUCTION-HOSTING.md). It lists the remaining Vercel blockers, secrets, worker, safe data-transfer process and domain steps. No deployment or DNS change has been performed.
+
 **Current implementation:** Secure Chef/Super User accounts; weekly forecasts and sales; default and weekly food-purchasing targets with scheduling and audit history; immediate confirmed supplier purchases with audited corrections/voids; manual weekly stock planning and preserved historical order/count tools; exact purchasing-percentage calculations, finalized reports and CSV export; responsive forest-green/cream/gold allowance dashboard and detailed four-tab real-data reports and reduced-motion support. See [implementation status and business rules](docs/IMPLEMENTATION.md).
 
 ## Run your existing Cocotte installation on your Mac
@@ -27,7 +29,7 @@ For the full role-by-role workflow, see [the Cocotte walkthrough](docs/COCOTTE-W
 ## First installation only
 
 
-Requirements: Node.js 22.18+ (Node 24 recommended), npm and a PostgreSQL 16+ database. PostgreSQL can run via a local installation, Docker, or a hosted service. PostgreSQL and Docker are not bundled.
+Requirements: Node.js 24, npm and a PostgreSQL 16+ database. PostgreSQL can run via a local installation, Docker, or a hosted service. PostgreSQL and Docker are not bundled.
 
 1. Install dependencies and configure your local environment:
 

@@ -1,9 +1,8 @@
 name: Deploy Cocotte to AWS
 
 on:
-  push:
-    branches:
-      - main
+  # Code publication must not deploy production without an explicit operator action.
+  workflow_dispatch:
 
 concurrency:
   group: cocotte-production

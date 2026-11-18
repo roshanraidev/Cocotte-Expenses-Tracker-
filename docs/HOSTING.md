@@ -1,5 +1,7 @@
 # Server hosting readiness
 
+For the current **www.mrcocotte.com / Vercel** preparation, follow [PRODUCTION-HOSTING.md](PRODUCTION-HOSTING.md). That runbook records the remaining browser-worker and upload-limit blockers; this older general Node-hosting guide is not a Vercel readiness claim.
+
 No deployment has been performed. Production builds and committed migrations are exercised by the isolated browser/integration suites on this Mac; an actual remote host still needs provisioning and verification.
 
 ## Already implemented
@@ -17,7 +19,7 @@ No deployment has been performed. Production builds and committed migrations are
 
 1. Provision a persistent PostgreSQL database and take a verified backup of the existing restaurant database. Migrate/restore existing data to the hosted database; do not seed a replacement database containing existing accounts. Test restoration before switching users.
 2. Configure the host's private `DATABASE_URL`, including its required TLS settings. Never prefix database secrets with `NEXT_PUBLIC_`. Choose `DATABASE_POOL_SIZE` for the database connection limit and replica count (default 10 per application process). The runtime account needs business-table permissions; migrations require a separate appropriately privileged connection/account where practical.
-3. Choose a host capable of running the Node.js server and native argon2 dependency. Use Node 24 (minimum declared version: 22.18), install from the lockfile, and retain Prisma CLI availability for migrations. Example build/release commands:
+3. Choose a host capable of running the Node.js server and native argon2 dependency. Use Node 24, install from the lockfile, and retain Prisma CLI availability for migrations. Example build/release commands:
 
    ```sh
    npm ci

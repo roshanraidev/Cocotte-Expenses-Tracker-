@@ -1,0 +1,18 @@
+# Build from the repository root: docker build -f ops/Dockerfile.worker -t cocotte-sales-worker .
+# Historical worker only. This does not move web-triggered Playwright/OCR tasks off Vercel.
+FROM node:24-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
+# Install the exact browser revision required by the locked Playwright dependency.
+RUN npx playwright install --with-deps chromium
+COPY . .
+# Code generation does not connect to or migrate a database. No production secret is a build argument.
+RUN npm run db:generate \
+    && npm prune --omit=dev \
+    && chown -R node:node /app /ms-playwright
+USER node
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD ["node", "--conditions=react-server", "--import", "tsx", "scripts/workers/health.ts"]
+CMD ["npm", "run", "worker:sales"]
