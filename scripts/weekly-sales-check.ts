@@ -2,12 +2,13 @@
 import {PrismaClient} from '../src/generated/prisma/client';
 import {PrismaPg} from '@prisma/adapter-pg';
 import {Pool} from 'pg';
-import {chromium,expect} from '@playwright/test';
+import {chromium,expect,devices} from '@playwright/test';
 import {spawn,execFile,type ChildProcess} from 'node:child_process';
 import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {ALL_PERMISSIONS} from '../src/lib/permissions';
 import {randomBytes} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {hashPassword} from '../src/lib/password';
@@ -16,6 +17,10 @@ import {financialWeek} from '../src/lib/financial-data';
 import {dashboardWeek} from '../src/lib/zonal/weekly-sales-data';
 import {previewImport,resolveImport} from '../src/lib/zonal/service';
 import {dateValue,weekDays} from '../src/lib/dates';
+import {startDateBatch,runBatch,approveBatch} from '../src/lib/zonal/batch';
+import {readWeeklySyncStatus} from '../src/lib/zonal/weekly-sync-status';
+import {encryptCredentials} from '../src/lib/zonal/crypto';
+import type {LoginResult} from '../src/lib/zonal/worker';
 const exec=promisify(execFile),root=await mkdtemp(join(tmpdir(),'cocotte-weekly-sales-')),cluster=join(root,'postgres');
 await exec('initdb',['-D',cluster,'-A','trust','-U','sales_test','--no-locale']);
 await exec('pg_ctl',['-D',cluster,'-l',join(root,'postgres.log'),'-o',`-p 51946 -h 127.0.0.1 -k ${root}`,'-w','start']);
@@ -67,31 +72,31 @@ try{
  await page.goto(base+'/login');await page.getByLabel('Email address').fill('sales-overview@example.test');await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Sign in to your kitchen'}).click();await expect(page).toHaveURL(/dashboard/);
  await page.goto(base+'/dashboard?week='+monday);
  const overview=page.locator('[data-weekly-sales-overview]');
- await expect(overview.getByRole('heading',{name:'Weekly Sales Overview',exact:true})).toBeVisible();
+ await expect(overview.getByRole('heading',{name:'Weekly sales',exact:true})).toBeVisible();
  await expect(overview.locator('[data-sales-kpi="net"]')).toHaveText('£300.00');
  await expect(overview.locator('[data-sales-kpi="food"]')).toHaveText('£210.00');
  await expect(overview.locator('[data-sales-kpi="drink"]')).toHaveText('£60.00');
  await expect(overview.locator('[data-sales-kpi="specials"]')).toHaveText('£30.00');
- await expect(overview).toContainText('2/7 days recorded');await expect(overview).toContainText('50.00%');await expect(overview).toContainText('£900.00');
- await expect(page.getByRole('heading',{name:'WEEKLY AVAILABLE TO SPEND',exact:true})).toBeVisible();
+ await expect(overview).toContainText('2/7 days recorded');await expect(overview).toContainText('50.00%');await expect(page.locator('.operational-budget')).toContainText('£900.00');
+ await expect(page.getByRole('heading',{name:'Remaining Food Purchasing Budget',exact:true})).toBeVisible();
  await expect(overview.getByText('No matching approved import',{exact:false})).toHaveCount(0);
- await expect(overview.locator('svg.recharts-surface')).toHaveCount(2);
+ await expect(overview.getByRole('figure',{name:'Weekly forecast versus recorded actual sales'})).toBeVisible();await expect(page.locator('.sales-intelligence')).toHaveCount(0);await expect(page.getByRole('button',{name:'Sync Zonal Sales',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Sync Weekly Net Sales',exact:true})).toHaveCount(1);
  await overview.screenshot({path:'/tmp/cocotte-weekly-sales-overview-test.png'});
- await overview.getByText('Daily sales breakdown · seven business dates',{exact:true}).click();
- const row=overview.getByRole('row').filter({has:page.getByRole('link',{name:monday,exact:true})});
- await expect(row).toContainText('£100.00');await expect(row).toContainText('£70.00');await expect(row).toContainText('£10.00');
+ await overview.getByText('Daily breakdown',{exact:true}).click();
+ const row=overview.getByRole('row').filter({has:page.locator(`a[href="/sales?date=${monday}"]`)});
+ await expect(row).toContainText('£100.00');await expect(overview.getByRole('columnheader',{name:'VAT',exact:true})).toHaveCount(0);
  await page.goto(base+'/sales?date='+monday);
  await expect(page.locator('table').getByRole('row').filter({has:page.locator('[data-sales-source="Zonal"]')})).toHaveCount(2);
- await page.goto(base+'/reports?week='+monday+'&tab=sales');await expect(page.getByText('£300.00',{exact:false}).first()).toBeVisible();
+ await page.goto(base+'/reports?week='+monday+'&tab=sales');await expect(page.getByText('£300.00',{exact:false}).first()).toBeVisible();const detail=page.getByRole('region',{name:'Sales financial detail'});await expect(detail).toContainText('£360.00');await expect(detail).toContainText('£60.00');await expect(detail).toContainText('Gross sales');await expect(detail).toContainText('Covers');await expect(detail).toContainText('Transactions');
  await page.goto(base+'/dashboard?week=2026-10-19');
  await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£9,999.00');
  await expect(page.locator('[data-sales-kpi="food"]')).toHaveText('Not available');
  await page.goto(base+'/dashboard?week='+monday);
- for(const width of [390,320]){
+ for(const width of [1440,768,390,320]){
   await page.setViewportSize({width,height:1000});
   try{await expect.poll(async()=>await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),{timeout:3000}).toBe(true);}
   catch(error){console.log('Synthetic mobile overflow',await page.evaluate(()=>({viewport:innerWidth,width:document.documentElement.scrollWidth,elements:[...document.querySelectorAll('body *')].map(e=>({tag:e.tagName,css:e.getAttribute('class'),right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width})).filter(e=>e.right>innerWidth+1&&e.width>0).slice(0,15)})));await page.screenshot({path:'/tmp/cocotte-sales-mobile-overflow.png',fullPage:true});throw error;}
-  await expect(page.locator('[data-sales-kpi="net"]')).toBeVisible();
+  await expect(page.locator('[data-sales-kpi="net"]')).toBeVisible();await page.screenshot({path:`/tmp/cocotte-operational-dashboard-${width}.png`,fullPage:true});
  }
  assert.deepEqual(await prisma.dailySales.findMany({orderBy:{date:'asc'}}),canonical);
  assert.deepEqual(await prisma.forecastDay.findMany({orderBy:{date:'asc'}}),forecastBefore);
@@ -100,7 +105,7 @@ try{
  await page.goto(base+'/dashboard?week='+monday);
  await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£350.00');
  await expect(page.locator('[data-sales-kpi="food"]')).toHaveText('Not available');
- await expect(page.getByText('Verified department coverage: 2/3 recorded days.',{exact:false})).toBeVisible();
+ await expect(page.getByText('Department detail is available for 2/3 recorded days.',{exact:false})).toBeVisible();
  await saveActualSales(prisma,actor,{date:monday,amount:12500n,version:1,reason:'Synthetic manual correction invalidates old report'},today);
  const changed=await dashboardWeek(prisma,actor.restaurantId,monday,today);
  assert.equal(changed.overview.actualNet,37500n);assert.equal(changed.overview.detailedDays,1);
@@ -113,6 +118,122 @@ try{
  assert.equal(final.overview.actualNet,final.financial.sales!.actualPence);
  assert.deepEqual(final.financial.finance,(await financialWeek(actor.restaurantId,monday,today,prisma)).finance);
  assert.deepEqual(await prisma.forecastDay.findMany({orderBy:{date:'asc'}}),forecastBefore);
+ // Selected-week source fixtures exercise financial locks and per-date isolation.
+ process.env.ZONAL_CREDENTIALS_KEY=randomBytes(32).toString('base64');
+ await prisma.zonalConnection.update({where:{restaurantId:actor.restaurantId},data:{encryptedCredentials:encryptCredentials(actor.restaurantId,{username:'fixture',password:'test-only'}),lastAttemptAt:new Date(0)}});
+ const syncWeek='2026-11-02',dates=weekDays(syncWeek);
+ await saveWeeklyForecast(prisma,actor,{weekStart:syncWeek,version:0,amounts:Array(7).fill(10000n),reason:'Synthetic sync regression'});
+ await saveActualSales(prisma,actor,{date:dates[1],amount:9900n,version:0,reason:'Synthetic manual sale'},today);
+ const manualBefore=await prisma.dailySales.findUniqueOrThrow({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue(dates[1])}}});
+ const claims=await Promise.allSettled([startDateBatch(prisma,actor,dates),startDateBatch(prisma,actor,dates)]);
+ assert.equal(claims.filter(r=>r.status==='fulfilled').length,1);
+ const batchId=(claims.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<string>).value;
+ await page.goto(base+'/dashboard?week='+syncWeek);await expect(page.locator('[data-sync-stage]')).toHaveText('Sync Started');await expect(page.getByRole('button',{name:'Sync Weekly Net Sales',exact:true})).toBeDisabled();await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£99.00');
+ const runner=async(_restaurant:string,_credentials:unknown,requested:string[],onDay:(date:string,result:LoginResult)=>Promise<void>)=>{
+  assert.deepEqual(requested,dates);
+  for(const date of requested)await onDay(date,date>dates[3]?{code:'REPORT_DATE_UNAVAILABLE',failureReason:'REPORT_AFTER_LATEST',loginVerified:true}:date===dates[2]?{code:'TIMEOUT',loginVerified:true}:{code:'REPORT_EXTRACTED',loginVerified:true,report:report(date,1) as NonNullable<LoginResult['report']>});
+  return {code:'AUTHENTICATED',loginVerified:true} as LoginResult;
+ };
+ await runBatch(prisma,actor,batchId,runner);
+ await expect(page.locator('[data-sync-stage]')).toHaveText('Review Required',{timeout:15000});await expect(page.getByRole('region',{name:'Weekly sales'})).toContainText('1 failed');await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£99.00');
+ assert.equal((await readWeeklySyncStatus(prisma,actor,syncWeek))?.stage,'Review Required');
+ assert.equal((await readWeeklySyncStatus(prisma,actor,syncWeek))?.failed,1);
+ assert.equal((await readWeeklySyncStatus(prisma,actor,syncWeek))?.unavailable,3);
+ const fetched=await prisma.zonalSyncDay.findMany({where:{batchId},orderBy:{date:'asc'}});
+ assert.equal(await prisma.dailySales.count({where:{restaurantId:actor.restaurantId,date:{gte:dateValue(syncWeek),lte:dateValue(dates[6])}}}),1);
+ assert.deepEqual(await approveBatch(prisma,actor,batchId,fetched.filter(d=>d.previewId).map(d=>d.previewId!),false,'Synthetic safe approval'),{approved:2,failed:1,skipped:0});
+ assert.deepEqual(await prisma.dailySales.findUniqueOrThrow({where:{id:manualBefore.id}}),manualBefore);
+ await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£299.00',{timeout:15000});
+ const count=await prisma.dailySales.count();
+ assert.deepEqual(await approveBatch(prisma,actor,batchId,[fetched[0].previewId!],false,'Repeated approval'),{approved:0,failed:0,skipped:1});
+ assert.equal(await prisma.dailySales.count(),count);
+ await prisma.zonalConnection.update({where:{restaurantId:actor.restaurantId},data:{lastAttemptAt:new Date(0)}});
+ const repeat=await startDateBatch(prisma,actor,dates);await runBatch(prisma,actor,repeat,runner);
+ assert.equal(await prisma.zonalSyncDay.count({where:{batchId:repeat,status:'UNCHANGED'}}),2);
+ assert.equal(await prisma.dailySales.count(),count);
+ const correction=(await prisma.zonalSyncDay.findMany({where:{batchId:repeat},orderBy:{date:'asc'}}))[1];
+ assert.deepEqual(await approveBatch(prisma,actor,repeat,[correction.previewId!],true,'Explicit synthetic manual correction'),{approved:1,failed:0,skipped:0});
+ assert.equal(await prisma.dailySales.count(),count);
+ // A subsequent clean fetch can resolve the failed date; only then show Approved.
+ await prisma.zonalConnection.update({where:{restaurantId:actor.restaurantId},data:{lastAttemptAt:new Date(0)}});
+ const recovered=await startDateBatch(prisma,actor,dates);
+ await page.goto(base+'/dashboard?week='+syncWeek);await expect(page.locator('[data-sync-stage]')).toHaveText('Sync Started');
+ await runBatch(prisma,actor,recovered,async(_r,_c,requested,onDay)=>{for(const date of requested)await onDay(date,date>dates[3]?{code:'REPORT_DATE_UNAVAILABLE',failureReason:'REPORT_AFTER_LATEST',loginVerified:true}:{code:'REPORT_EXTRACTED',loginVerified:true,report:report(date,1) as NonNullable<LoginResult['report']>});return {code:'AUTHENTICATED',loginVerified:true};});
+ const missing=await prisma.zonalSyncDay.findFirstOrThrow({where:{batchId:recovered,date:dateValue(dates[2])}});
+ await approveBatch(prisma,actor,recovered,[missing.previewId!],false,'Explicit synthetic missing-day approval');
+ await expect(page.locator('[data-sync-stage]')).toHaveText('Approved',{timeout:15000});await expect(page.locator('[data-sales-kpi="net"]')).toHaveText('£400.00',{timeout:15000});
+ await page.screenshot({path:'/tmp/cocotte-operational-approved.png',fullPage:true});
+ const keys=await prisma.dailySales.groupBy({by:['restaurantId','date'],_count:{_all:true}});assert(keys.every(k=>k._count._all===1));
+ assert.deepEqual(await prisma.forecastDay.findMany({where:{weeklyForecast:{weekStart:dateValue(monday)}},orderBy:{date:'asc'}}),forecastBefore);
+ console.log('PASS selected-week regression: concurrent reservation, partial failures, latest-offered cutoff, explicit manual protection/correction, repeat fetch/approval idempotency and unchanged forecasts.');
+ await page.goto(base+'/admin/integrations/zonal');
+ await expect(page.getByRole('button',{name:'Sync Zonal Sales',exact:true})).toHaveCount(0);
+ await page.getByText('Daily incremental sales tools',{exact:true}).click();
+ await expect(page.getByRole('button',{name:'Sync Zonal Sales',exact:true})).toBeVisible();
+ await page.getByText('Daily incremental sales tools',{exact:true}).click();
+ await expect(page.getByRole('button',{name:'Sync Zonal Sales',exact:true})).toHaveCount(0);
+ // Shared navigation checks use only this disposable restaurant and browser session.
+ await page.setViewportSize({width:1440,height:1000});await page.goto(base+'/dashboard');
+ await expect(page.getByRole('button',{name:'Collapse sidebar',exact:true})).toBeVisible();
+ const expandedWidth=await page.locator('.desktop-sidebar').evaluate(e=>e.getBoundingClientRect().width);
+ await page.getByRole('button',{name:'Collapse sidebar',exact:true}).click();
+ await expect(page.locator('.adaptive-shell')).toHaveClass(/is-collapsed/);
+ await page.waitForTimeout(250);assert((await page.locator('.desktop-sidebar').evaluate(e=>e.getBoundingClientRect().width))<expandedWidth);
+ await page.reload();await expect(page.getByRole('button',{name:'Expand sidebar',exact:true})).toBeVisible();await expect(page.locator('[data-weekly-sales-overview]')).toBeVisible();await page.waitForTimeout(250);assert.equal(Math.round(await page.locator('.desktop-sidebar').evaluate(e=>e.getBoundingClientRect().width)),80);
+ const recipeRail=page.locator('.desktop-sidebar a[href="/recipes"]');await recipeRail.focus();await expect(recipeRail.locator('.rail-tooltip')).toBeVisible();
+ await page.screenshot({path:'/tmp/cocotte-navigation-desktop.png',fullPage:true});
+ await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
+ const recipeType=await prisma.recipeType.create({data:{restaurantId:actor.restaurantId,name:'Navigation test preparations'}});
+ await prisma.recipe.createMany({data:Array.from({length:32},(_,n)=>({restaurantId:actor.restaurantId,typeId:recipeType.id,name:'Test preparation '+String(n+1).padStart(2,'0'),ingredients:[]}))});
+ for(const width of [375,390,412,768,1440]){
+  await page.setViewportSize({width,height:844});await page.goto(base+'/recipes');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(width<768){
+   const bottom=page.getByRole('navigation',{name:'Mobile navigation'});await expect(bottom).toBeVisible();
+   await expect(bottom.getByRole('link',{name:'Recipes',exact:true})).toHaveAttribute('aria-current','page');
+   await expect(bottom.getByRole('link')).toHaveCount(4);
+   await page.getByRole('button',{name:'More navigation'}).click();await expect(page.getByRole('dialog')).toBeVisible();if(width===390)await page.screenshot({path:'/tmp/cocotte-navigation-more.png'});
+   await expect(page.getByRole('dialog').getByRole('button',{name:'Sign out'})).toBeVisible();
+   await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).not.toBeVisible();await expect(page.getByRole('button',{name:'More navigation'})).toBeFocused();
+   await expect(page.locator('.recipe-grid .recipe-card')).toHaveCount(32);await expect(page.locator('.recipe-grid .recipe-card').first()).toBeVisible();
+   const scroller=page.locator('.shell-content'),top=page.locator('.mobile-app-header');await expect(top).toBeVisible();
+   const headerBefore=await top.boundingBox();await scroller.evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));
+   await expect.poll(()=>scroller.evaluate(e=>e.scrollTop)).toBeGreaterThan(100);assert.equal(await page.evaluate(()=>scrollY),0);
+   const bounds=await bottom.boundingBox(),headerAfter=await top.boundingBox(),contentBounds=await scroller.boundingBox();
+   assert(bounds&&headerAfter&&contentBounds&&headerBefore);assert.equal(headerAfter.y,headerBefore.y);assert(contentBounds.y>=headerAfter.y+headerAfter.height-1);assert(contentBounds.y+contentBounds.height<=bounds.y+1);
+   const sticky=page.locator('.recipe-mobile-heading');assert((await sticky.boundingBox())!.y>=headerAfter.y+headerAfter.height-1);await expect(sticky.getByRole('link',{name:'New Recipe',exact:true})).toBeVisible();
+   await expect(top.locator('.mobile-page-context p')).toHaveText('Recipe Library');
+   await scroller.evaluate(e=>e.scrollTo({top:e.scrollHeight,behavior:'instant'}));
+   assert((await page.locator('.recipe-library-specials').boundingBox())!.y<bounds.y);
+   await scroller.evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));await page.waitForTimeout(220);
+   await page.screenshot({path:'/tmp/cocotte-navigation-mobile-'+width+'.png',fullPage:false});
+   await page.getByRole('button',{name:'More navigation'}).click();
+   await page.getByRole('dialog').getByRole('link',{name:'Weekly Planning',exact:true}).click();
+   await expect(page).toHaveURL(/admin\/planning/);await expect(page.getByRole('dialog')).not.toBeVisible();
+  }else{await expect(page.locator('.desktop-sidebar')).toBeVisible();await expect(page.locator('.mobile-bottom')).not.toBeVisible();}
+ }
+ // Touch-device contexts use the same synthetic account; no real device or purchase changes.
+ for(const deviceName of ['iPhone 13','Pixel 7']){
+  const touchContext=await browser.newContext({...devices[deviceName],deviceScaleFactor:1});await touchContext.addCookies(await page.context().cookies());const touchPage=await touchContext.newPage();
+  await touchPage.goto(base+'/dashboard?week='+monday);await expect(touchPage.locator('[data-weekly-sales-overview]')).toBeVisible();await expect(touchPage.locator('.mobile-page-context small')).toContainText('26 Oct');
+  await touchPage.screenshot({path:'/tmp/cocotte-mobile-'+(deviceName==='iPhone 13'?'iphone':'android')+'-dashboard.png'});
+  await touchPage.goto(base+'/recipes');await expect(touchPage.locator('.recipe-card')).toHaveCount(32);await expect(touchPage.locator('.recipe-card').first()).toBeVisible();
+  await touchPage.locator('.shell-content').evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));await touchPage.waitForTimeout(250);
+  await touchPage.screenshot({path:'/tmp/cocotte-mobile-'+(deviceName==='iPhone 13'?'iphone':'android')+'-recipes.png'});
+  await touchPage.getByRole('button',{name:'Search and filter recipes'}).click();await expect(touchPage.getByRole('textbox',{name:'Search recipes'})).toBeFocused();
+  await touchPage.setViewportSize({width:390,height:460});
+  await expect.poll(async()=>{const input=await touchPage.getByRole('textbox',{name:'Search recipes'}).boundingBox(),bar=await touchPage.locator('.mobile-bottom').boundingBox(),header=await touchPage.locator('.mobile-app-header').boundingBox();return !!(input&&bar&&header&&input.y>=header.y+header.height&&input.y+input.height<=bar.y);}).toBe(true);
+  await touchPage.getByRole('textbox',{name:'Search recipes'}).blur();await touchPage.setViewportSize({width:390,height:844});
+  await touchPage.getByRole('button',{name:'More navigation'}).click();await touchPage.screenshot({path:'/tmp/cocotte-mobile-more.png'});await touchPage.keyboard.press('Escape');
+  await touchContext.close();
+ }
+ const viewer=await prisma.user.create({data:{restaurantId:actor.restaurantId,name:'Recipe Viewer',email:'navigation-viewer@example.test',passwordHash:await hashPassword(password),role:'CHEF',accessRole:'VIEWER',permissionOverrides:Object.fromEntries(ALL_PERMISSIONS.map(p=>[p,p==='recipes.view']))}});
+ const viewerContext=await browser.newContext({viewport:{width:390,height:844}}),viewerPage=await viewerContext.newPage();
+ await viewerPage.goto(base+'/login');await viewerPage.getByLabel('Email address').fill(viewer.email);await viewerPage.getByLabel('Password',{exact:true}).fill(password);await viewerPage.getByRole('button',{name:'Sign in to your kitchen'}).click();await expect(viewerPage).toHaveURL(/recipes/);
+ await expect(viewerPage.getByRole('navigation',{name:'Mobile navigation'}).getByRole('link')).toHaveCount(1);
+ await viewerPage.getByRole('button',{name:'More navigation'}).click();await expect(viewerPage.getByRole('dialog').getByRole('link')).toHaveCount(1);await expect(viewerPage.getByRole('dialog').getByRole('combobox',{name:'Workspace'})).toHaveCount(0);await viewerPage.keyboard.press('Escape');
+ await expect(viewerPage.getByRole('link',{name:'New Recipe',exact:true})).toHaveCount(0);await viewerContext.close();
+ console.log('PASS adaptive navigation: desktop collapse/persistence/focus tooltip; 375/390/412px bottom navigation, active Recipes, Escape/focus return, permitted More routes, scrolling clearance and 768/1440px sidebar.');
  const anonymous=await browser.newPage();await anonymous.goto(base+'/dashboard');await expect(anonymous).toHaveURL(/login/);await anonymous.close();
  assert.deepEqual(errors,[]);
  console.log('PASS browser: sales KPI/cards, charts and seven-date breakdown, Daily Sales/Reports agreement, selected week, manual/stale details unavailable, complete/partial states, 320/390px, purchasing hero preserved and forecasts unchanged. Synthetic data only.');

@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { startBatch,startDateBatch,runBatch,batchOverview,cancelBatch,approveBatch } from '@/lib/zonal/batch';
+import { fetchZonalWeeklyBatch } from '@/lib/zonal/worker';
+import { mondayOf } from '@/lib/dates';
 import { ZonalError } from '@/lib/zonal/validation';
 export async function readBatches(){return batchOverview(db(),await requireAdmin());}
 export async function syncBatch(form:FormData){
@@ -25,11 +27,12 @@ export async function approveSyncBatch(form:FormData){
  }catch(error){return {error:error instanceof ZonalError?error.message:'Approval could not complete. Refresh and review each date before retrying.',message:''};}
 }
 
-export async function syncSelectedDates(dates:string[]){
+export async function syncSelectedDates(dates:string[],weeklyOnly=false){
  const actor=await requireAdmin();
  try{
+  if(weeklyOnly&&(!dates.length||dates.length>7||dates.some(d=>mondayOf(d)!==mondayOf(dates[0]))))throw new ZonalError('Choose dates within one Monday–Sunday week.');
   const id=await startDateBatch(db(),actor,dates);
-  after(async()=>{try{await runBatch(db(),actor,id);}catch{console.info('[zonal] BATCH INTERRUPTED');}revalidatePath('/admin/integrations/zonal');});
-  return {error:'',message:`Sync started for ${dates.length} selected and recent reporting dates. Review and approve the previews before sales change.`};
+  after(async()=>{try{await runBatch(db(),actor,id,weeklyOnly?fetchZonalWeeklyBatch:undefined);}catch{console.info('[zonal] BATCH INTERRUPTED');}revalidatePath('/admin/integrations/zonal');});
+  return {error:'',message:`Sync started for ${dates.length} selected reporting dates. Review and approve the previews before sales change.`,batchId:id};
  }catch(error){return {error:error instanceof ZonalError?error.message:'Sales sync could not start. No approved sales were changed.',message:''};}
 }

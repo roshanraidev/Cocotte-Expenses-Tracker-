@@ -1,0 +1,72 @@
+.operational-dashboard{max-width:1250px;margin-inline:auto;color:#203b2e;--ops-rule:#dedfd1}
+.operational-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:18px}
+.operational-heading .eyebrow{margin-bottom:5px;font-size:10px}
+.operational-heading .page-title{font:400 clamp(25px,2.7vw,32px)/1.2 Georgia,serif;margin:0;letter-spacing:-.6px}
+.operational-heading .week-toolbar{margin:0;max-width:630px;padding:9px 12px;background:#fcfbf5}
+.operational-heading .week-toolbar>div{gap:10px}
+.operational-heading .week-toolbar p{font-size:12px}
+.operational-budget{display:grid;grid-template-columns:1fr 1.1fr;gap:30px;padding:26px 30px;border-radius:18px;background:linear-gradient(110deg,#153e2e,#214b38);color:#fffdf4;border-top:3px solid #b49b63;box-shadow:0 8px 24px #193d2910}
+.operational-budget-label{font-size:13px;font-weight:600;line-height:1.5;color:#ecdfb8;margin:0}
+.operational-budget-value{font-size:clamp(29px,4.2vw,53px);font-weight:600;line-height:1.14;letter-spacing:-1px;margin:13px 0 8px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.operational-budget-caption{font-size:11px;color:#d0ddcf;line-height:1.6}
+.operational-budget-health{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:11px;color:#efe1b8;margin-top:13px;line-height:1.6}
+.operational-budget-health a{text-decoration:underline;text-underline-offset:3px}
+.operational-budget-facts{display:grid;grid-template-columns:1fr 1fr;gap:21px 24px;align-content:center;border-left:1px solid #ffffff20;padding-left:28px}
+.operational-budget-facts dt{color:#cbd9cb;font-size:11px;line-height:1.5}
+.operational-budget-facts dd{margin-top:6px;font-size:19px;font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.operational-sales{margin-top:18px;padding:22px 24px;background:#fffdf7;border:1px solid var(--ops-rule);border-radius:16px}
+.operational-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.operational-section-heading h2{font:400 23px/1.2 Georgia,serif;letter-spacing:-.3px;margin:0}
+.operational-section-heading .badge{font-size:10px;letter-spacing:0;text-transform:none;white-space:nowrap}
+.operational-sales-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:18px 0 0}
+.operational-sales-metrics>div{min-width:0;padding-right:12px;border-right:1px solid #e5e5d8}
+.operational-sales-metrics>div:last-child{border-right:0}
+.operational-sales-metrics p{font-size:11px;color:#58685b;line-height:1.5}
+.operational-sales-metrics strong{display:block;font-size:clamp(18px,2.2vw,27px);font-weight:600;letter-spacing:-.4px;margin-top:7px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.operational-sales-metrics small{display:block;color:#65715f;font-size:10px;margin-top:5px;line-height:1.4}
+.operational-note{font-size:12px;line-height:1.7;color:#5f6b5d;margin:12px 0 0}
+.operational-performance-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #e8e7db;padding-top:16px;margin-top:18px}
+.operational-performance-heading h3{font-size:13px;font-weight:600}
+.operational-performance-heading p{font-size:11px;color:#66715f}
+.operational-week-chart{margin-top:11px}
+.operational-week-chart figcaption{display:flex;justify-content:flex-end;gap:16px;font-size:10px;color:#576750}
+.operational-week-chart figcaption span::before{content:'';display:inline-block;width:7px;height:7px;border-radius:2px;background:#bea772;margin-right:6px}
+.operational-week-chart figcaption span:last-child::before{background:#2e6247}
+.operational-week-bars{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;padding-top:10px;background:repeating-linear-gradient(to top,transparent,transparent 34px,#ecebdf 35px,transparent 36px);background-clip:content-box}
+.operational-week-day{min-width:0;text-align:center;font-size:10px;color:#60715e}
+.operational-bar-track{height:105px;display:flex;align-items:flex-end;justify-content:center;gap:5px;border-bottom:1px solid #dcddcf;margin-bottom:7px}
+.operational-bar-track>span{display:block;width:18px;max-width:35%;border-radius:3px 3px 0 0}
+.operational-bar-forecast{background:#c8b682}
+.operational-bar-actual{background:#2e6247}
+.operational-bar-missing{height:12px;line-height:12px;color:#65745c}
+.operational-sync{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;border-top:1px solid var(--ops-rule);margin-top:18px;padding-top:16px}
+.operational-sync-action{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.operational-sync-action .btn{font-size:12px;min-height:44px;white-space:nowrap}
+.operational-text-link{font-size:12px;font-weight:600;color:#345c40;text-decoration:underline;text-underline-offset:3px;min-height:44px;display:inline-flex;align-items:center}
+.operational-sync-status{flex:1;min-width:200px;display:flex;flex-direction:column;gap:4px;font-size:11px;color:#5d6b58;line-height:1.5}
+.operational-sync-status strong{color:#284b34;font-size:12px}
+.operational-sync-status small{font-size:10px}
+.operational-sync-error{width:100%;border-left:3px solid #af9658;background:#faf5e7;padding:9px 12px;color:#7c422f;font-size:12px;line-height:1.6}
+.operational-daily{border-top:1px solid var(--ops-rule);margin-top:15px;padding-top:7px}
+.operational-daily>summary{display:flex;align-items:center;min-height:44px;font-size:12px;font-weight:600;cursor:pointer}
+.operational-daily>summary::before{content:'+';color:#9b8249;font-size:18px;width:20px}
+.operational-daily[open]>summary::before{content:'−'}
+.operational-daily .data-table td:not(:first-child),.operational-daily .data-table th:not(:first-child){text-align:right}
+.operational-report-link{margin-top:0;font-size:11px;min-height:32px}
+.operational-bottom{display:grid;align-items:start;grid-template-columns:minmax(0,1fr) 210px;gap:24px;margin-top:20px}
+.operational-purchases{padding:19px 22px;background:#faf9f1;border:1px solid var(--ops-rule);border-radius:14px;min-width:0}
+.operational-purchases .operational-section-heading h2{font-size:20px}
+.operational-purchases ul{margin-top:4px}
+.operational-purchases li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e5e4d7}
+.operational-purchases li:last-child{border-bottom:0;padding-bottom:0}
+.operational-purchases li strong{font-size:12px;font-weight:500;display:block}
+.operational-purchases li small{display:block;font-size:10px;color:#67705e;margin-top:4px}
+.operational-purchases li>span{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.operational-quick-actions{display:flex;flex-direction:column;gap:4px;align-self:start}
+.operational-quick-actions>a{display:flex;align-items:center;gap:10px;min-height:44px;padding:9px 11px;border-radius:8px;font-size:12px;color:#36583e;transition:background 180ms ease}
+.operational-quick-actions>a:hover{background:#e9eddf}
+.operational-footnote{font-size:10px;line-height:1.7;color:#66715e;margin-top:20px}
+@media(max-width:1050px){.operational-heading{flex-wrap:wrap;gap:13px}.operational-heading .week-toolbar{max-width:none;flex:1 1 100%}.operational-budget{gap:20px;padding:23px}.operational-budget-facts{padding-left:20px;gap:20px 14px}}
+@media(max-width:600px){.operational-heading{margin-bottom:14px}.operational-heading .week-toolbar{padding:9px}.operational-heading .week-toolbar>div{justify-content:center}.operational-heading .week-toolbar nav{gap:5px}.operational-heading .week-toolbar p{font-size:12px}.operational-budget{grid-template-columns:1fr;gap:18px;padding:21px;border-radius:14px}.operational-budget-value{font-size:39px}.operational-budget-facts{border-left:0;border-top:1px solid #ffffff25;padding:16px 0 0;gap:16px}.operational-budget-facts dd{font-size:18px}.operational-sales{padding:18px 15px;margin-top:14px}.operational-section-heading{flex-wrap:wrap;gap:8px}.operational-section-heading h2{font-size:22px}.operational-sales-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:17px 12px}.operational-sales-metrics>div:nth-child(2){border-right:0}.operational-sales-metrics strong{font-size:22px}.operational-performance-heading{align-items:flex-start;flex-direction:column;gap:5px}.operational-week-bars{gap:6px}.operational-bar-track{gap:3px;height:95px}.operational-sync{gap:10px}.operational-sync-status{min-width:0;flex-basis:100%}.operational-bottom{grid-template-columns:1fr;gap:12px}.operational-purchases{padding:16px}.operational-quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px}}
+@media(prefers-reduced-motion:reduce){.operational-quick-actions>a{transition:none}}
+@media print{.operational-sync,.operational-quick-actions{display:none}.operational-budget{background:#fff;color:#163b2e;border:1px solid #aaa}.operational-budget dt,.operational-budget-caption,.operational-budget-health,.operational-budget-label{color:#163b2e}}

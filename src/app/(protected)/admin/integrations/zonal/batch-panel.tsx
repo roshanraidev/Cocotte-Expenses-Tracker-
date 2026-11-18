@@ -47,7 +47,7 @@ function BatchReview({batch,busy,onApprove,onCancel}:{batch:BatchOverview[number
  const selectedNet=chosen.reduce((sum,day)=>sum+BigInt(day.report!.net),0n);
  const counts=(statuses:string[])=>batch.days.filter(day=>statuses.includes(day.status)).length;
  const checked=batch.days.filter(day=>day.attempted).length;
- const labels:Record<string,string>={NEW:'New',UNCHANGED:'Already Imported',CHANGED:'Correction Required',BLOCKED:'Blocked',EXPIRED:'Expired — fetch again',FAILED:'Failed',APPROVED:'Approved',PENDING:'Waiting'};
+ const labels:Record<string,string>={NEW:'New',UNCHANGED:'Already Imported',CHANGED:'Correction Required',BLOCKED:'Blocked',EXPIRED:'Expired — fetch again',FAILED:'Failed',APPROVED:'Approved',PENDING:'Waiting',UNAVAILABLE:'Not yet available'};
  return <article className="overflow-hidden rounded-xl border border-stone-200">
   <div className="bg-[#f8f5ec] p-4 sm:p-5"><div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">{batch.from} — {batch.to}</h3><p className="mt-1 text-xs text-stone-500">{batch.branch} · {batch.status.toLowerCase()} · {checked} of {batch.days.length} dates checked</p></div>{batch.status==='RUNNING'&&<button type="button" onClick={onCancel} disabled={busy} className="btn btn-secondary">Cancel sync</button>}</div>
   <progress style={{accentColor:'#315944'}} className="mt-3 h-1 w-full" value={checked} max={batch.days.length} aria-label="Dates checked"/>

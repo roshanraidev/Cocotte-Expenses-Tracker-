@@ -1,5 +1,6 @@
 export function reportErrorMessage(code:string|null){
  const messages:Record<string,string>={
+ REPORT_AFTER_LATEST:'Zonal has not offered a completed report for this date yet. It remains unrecorded.',
  REPORT_SUMMARY_MISSING:'Zonal rendered the report header but no sales summary. No zero sales have been inferred.',
  REPORT_UNCLASSIFIED_DEPARTMENT:'Miscellaneous has nonzero net sales and no verified food/drink classification. Manual review is required.',
  REPORT_DEPARTMENTS_CHANGED:'An unexpected or duplicate department row was found.',
