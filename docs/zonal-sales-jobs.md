@@ -5,7 +5,7 @@ Historical sales backfill, discovery, retry/resume and historical bulk-approval 
 ## Supported workflows
 
 - **Sync Weekly Net Sales** uses the selected completed Monday–Sunday dates plus the configured recent correction window and existing preview/approval pipeline.
-- **Sync Zonal Sales** queues daily incremental work in PostgreSQL. First use checks the recent window; subsequent use catches missing dates in jobs capped at 31 dates. It does not require historical discovery metadata. Reports require explicit Super User approval; conflicts, finalized weeks and missing forecasts stay blocked.
+- **Sync Zonal Sales** queues daily incremental work in PostgreSQL when the daily worker is healthy. Without that optional worker it reuses the existing bounded weekly/single-day preview pipeline, with the same approvals and duplicate checks; it stays usable on the persistent AWS Node server. First use checks the recent window; subsequent use catches missing dates in jobs capped at 31 dates. It does not require historical discovery metadata. Reports require explicit Super User approval; conflicts, finalized weeks and missing forecasts stay blocked.
 - The approved-data Sales Performance chart, normal reports and purchasing calculations remain unchanged.
 
 `src/lib/sales-sync` contains the daily queue, lease/recovery logic and explicit daily approval processing. Claiming, ownership, review and durable financial approval all require `kind=DAILY`. Existing HISTORY jobs cannot be resumed, claimed or approved through this pipeline. There is no scheduled sync or automatic approval.
