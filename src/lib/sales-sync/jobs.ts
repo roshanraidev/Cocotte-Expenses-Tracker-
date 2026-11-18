@@ -9,35 +9,21 @@ import {addDays,dateKey,dateValue,londonToday,validDateKey} from '../dates';
 import {ZonalError} from '../zonal/validation';
 import {assessPreview} from '../zonal/approval';
 import {mondayOf} from '../dates';
+import {recentWindow,dailySyncRange} from '../zonal/sync-config';
 export const ACTIVE=['QUEUED','RUNNING','PAUSED'];
-export function recentWindow(){const n=Number(process.env.ZONAL_SALES_RECHECK_DAYS??7);return Number.isInteger(n)&&n>=1&&n<=31?n:7;}
-export function dateRange(from:string,to:string){if(!validDateKey(from)||!validDateKey(to)||from>to)throw new ZonalError('Invalid sales date range.');const dates:string[]=[];for(let d=from;d<=to;d=addDays(d,1)){if(dates.length>=5500)throw new ZonalError('Sales history exceeds the supported 15-year range.');dates.push(d);}return dates;}
-export async function verifiedBounds(prisma:PrismaClient,restaurantId:string){
- const audit=await prisma.auditLog.findFirst({where:{restaurantId,action:'ZONAL_SALES_HISTORY_DISCOVERED'},orderBy:{createdAt:'desc'}});
- const e=audit?.after as {offeredFirst?:string;offeredLast?:string;verifiedDates?:string[];branch?:string}|null;
- if(!e?.offeredFirst||!e.offeredLast||!validDateKey(e.offeredFirst)||!validDateKey(e.offeredLast)||e.branch!=='003 – Parsons Green'||!e.verifiedDates?.includes(e.offeredFirst))throw new ZonalError('Verify historical Zonal availability for this restaurant first.');
- return {first:e.offeredFirst,last:e.offeredLast};
-}
+export function assertDailyKind(kind:string){if(kind!=='DAILY')throw new ZonalError('Historical sales imports are disabled. Existing records are retained.');}
+export function dateRange(from:string,to:string){if(!validDateKey(from)||!validDateKey(to)||from>to)throw new ZonalError('Invalid sales date range.');const dates:string[]=[];for(let d=from;d<=to;d=addDays(d,1)){if(dates.length>=31)throw new ZonalError('Daily sync is limited to 31 completed dates per job.');dates.push(d);}return dates;}
 export async function workerReady(prisma:PrismaClient){return !!await prisma.zonalSalesWorker.findFirst({where:{heartbeatAt:{gt:new Date(Date.now()-20000)}}});}
-export async function enqueueSalesJob(prisma:PrismaClient,actor:SalesActor,kind:'HISTORY'|'DAILY'){
- assertAdmin(actor.role);
+export async function enqueueSalesJob(prisma:PrismaClient,actor:SalesActor,kind:string='DAILY',now=new Date()){
+ assertAdmin(actor.role);assertDailyKind(kind);
  if(!await workerReady(prisma))throw new ZonalError('The durable sales worker is offline. Start npm run worker:sales under a restart supervisor. No import has started.');
- const bounds=await verifiedBounds(prisma,actor.restaurantId),yesterday=addDays(londonToday(),-1);
+ const yesterday=addDays(londonToday(now),-1);
  return prisma.$transaction(async tx=>{
   await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id=${actor.restaurantId} FOR UPDATE`;
   const active=await tx.zonalSalesJob.findFirst({where:{restaurantId:actor.restaurantId,kind,status:{in:ACTIVE}}});if(active)return active.id;
-  let dates:string[];
-  if(kind==='HISTORY'){
-   const existing=await tx.zonalSalesJob.findFirst({where:{restaurantId:actor.restaurantId,kind:'HISTORY'},orderBy:{createdAt:'desc'}});if(existing)return existing.id;
-   dates=dateRange(bounds.first,yesterday);
-  }else{
-   const prior=await tx.zonalSalesJob.findFirst({where:{restaurantId:actor.restaurantId,latestAvailable:{not:null}},orderBy:{createdAt:'desc'}});
-   const latest=prior?.latestAvailable?dateKey(prior.latestAvailable):bounds.last;
-   const start=[bounds.first,addDays(latest,1-recentWindow())].sort().at(-1)!;
-   // Recent checks never pull unresolved historical failures into daily use.
-   // Historical exceptions stay attached to their original job for explicit review.
-   dates=dateRange(start,yesterday);
-  }
+  const prior=await tx.zonalSalesJob.findFirst({where:{restaurantId:actor.restaurantId,kind:'DAILY',status:{in:['REVIEW','COMPLETE']}},orderBy:{createdAt:'desc'},select:{to:true}});
+  const range=dailySyncRange(yesterday,prior?dateKey(prior.to):null,recentWindow());
+  const dates=dateRange(range.from,range.to);
   const connection=await tx.zonalConnection.findUnique({where:{restaurantId:actor.restaurantId}});if(!connection?.encryptedCredentials||connection.branch!=='003 – Parsons Green')throw new ZonalError('Connect the authorised Parsons Green branch first.');
   const job=await tx.zonalSalesJob.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,kind,from:dateValue(dates[0]),to:dateValue(dates.at(-1)!),days:{create:dates.map(d=>({date:dateValue(d)}))}}});
   await tx.auditLog.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,action:'ZONAL_SALES_JOB_QUEUED',entity:'ZonalSalesJob',entityId:job.id,after:{kind,dates:dates.length,from:dates[0],to:dates.at(-1)!}}});return job.id;
@@ -47,7 +33,7 @@ export async function controlSalesJob(prisma:PrismaClient,actor:SalesActor,id:st
  assertAdmin(actor.role);
  await prisma.$transaction(async tx=>{
   await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id=${actor.restaurantId} FOR UPDATE`;
-  const job=await tx.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId}});if(!job)throw new ZonalError('Sales job not found.');
+  const job=await tx.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId,kind:'DAILY'}});if(!job)throw new ZonalError('Sales job not found.');
   if(action!=='pause'&&!await workerReady(prisma))throw new ZonalError('The durable sales worker is offline.');
   if(action==='pause')await tx.zonalSalesJob.update({where:{id},data:{status:'PAUSED',lastError:'Paused by an authorised user.'}});
   else{
@@ -60,7 +46,7 @@ export async function controlSalesJob(prisma:PrismaClient,actor:SalesActor,id:st
 }
 export async function jobReview(prisma:PrismaClient,actor:SalesActor,id:string){
  assertAdmin(actor.role);
- const job=await prisma.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId},include:{days:{where:{status:{in:['STAGED','EXCEPTION']}},orderBy:{date:'asc'}}}});if(!job)throw new ZonalError('Sales job not found.');
+ const job=await prisma.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId,kind:'DAILY'},include:{days:{where:{status:{in:['STAGED','EXCEPTION']}},orderBy:{date:'asc'}}}});if(!job)throw new ZonalError('Sales job not found.');
  const clean:{id:string;previewId:string;date:string;net:string;hash:string}[]=[],exceptions:{id:string;date:string;reason:string;href:string}[]=[];
  // One coherent batched snapshot; never issue seven queries for each of 1,455 days.
  await prisma.$transaction(async tx=>{
@@ -88,12 +74,12 @@ export async function jobReview(prisma:PrismaClient,actor:SalesActor,id:string){
  return {jobId:id,clean,total,digest,exceptions};
 }
 export async function requestBulkApproval(prisma:PrismaClient,actor:SalesActor,id:string,digest:string,reason:string){
- assertAdmin(actor.role);if(reason.trim().length<3||reason.length>500)throw new ZonalError('Supply a historical approval reason (3–500 characters).');
+ assertAdmin(actor.role);if(reason.trim().length<3||reason.length>500)throw new ZonalError('Supply a sales approval reason (3–500 characters).');
  if(!await workerReady(prisma))throw new ZonalError('The durable sales worker is offline.');
  const summary=await jobReview(prisma,actor,id);if(summary.digest!==digest||!summary.clean.length)throw new ZonalError('Review changed. Refresh the summary before approving.');
  await prisma.$transaction(async tx=>{
   await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id=${actor.restaurantId} FOR UPDATE`;
-  const job=await tx.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId}});if(!job||!['REVIEW','COMPLETE'].includes(job.status))throw new ZonalError('Wait for retrieval to finish or pause it before bulk review.');
+  const job=await tx.zonalSalesJob.findFirst({where:{id,restaurantId:actor.restaurantId,kind:'DAILY'}});if(!job||!['REVIEW','COMPLETE'].includes(job.status))throw new ZonalError('Wait for retrieval to finish or pause it before bulk review.');
   if(summary.exceptions.length)await tx.$executeRaw`UPDATE "ZonalSalesJobDay" AS d SET "status"='EXCEPTION', "reason"=e.reason FROM jsonb_to_recordset(${JSON.stringify(summary.exceptions.map(e=>({id:e.id,reason:e.reason})))}::jsonb) AS e(id text,reason text) WHERE d."id"=e.id AND d."jobId"=${id} AND d."status" IN ('STAGED','EXCEPTION')`;
   await tx.zonalSalesJobDay.updateMany({where:{jobId:id,id:{in:summary.clean.map(d=>d.id)},status:{in:['STAGED','EXCEPTION']}},data:{status:'APPROVAL_QUEUED'}});
   await tx.zonalSalesJob.update({where:{id},data:{actorId:actor.id,status:'QUEUED',phase:'APPROVE',approvalReason:reason.trim(),leaseToken:null,leaseUntil:null}});
@@ -102,8 +88,7 @@ export async function requestBulkApproval(prisma:PrismaClient,actor:SalesActor,i
 }
 export async function salesJobStatus(prisma:PrismaClient,actor:SalesActor){
  assertAdmin(actor.role);
- const [ready,recent,history,connection]=await Promise.all([workerReady(prisma),prisma.zonalSalesJob.findMany({where:{restaurantId:actor.restaurantId},orderBy:{createdAt:'desc'},take:5,include:{days:{select:{status:true,date:true,processedAt:true,reason:true}}}}),prisma.zonalSalesJob.findFirst({where:{restaurantId:actor.restaurantId,kind:'HISTORY'},orderBy:{createdAt:'desc'},include:{days:{select:{status:true,date:true,processedAt:true,reason:true}}}}),prisma.zonalConnection.findUnique({where:{restaurantId:actor.restaurantId},select:{reportAccessVerifiedAt:true}})]);
- const jobs=[...new Map([...(history?[history]:[]),...recent].map(job=>[job.id,job])).values()];
+ const [ready,jobs,connection]=await Promise.all([workerReady(prisma),prisma.zonalSalesJob.findMany({where:{restaurantId:actor.restaurantId,kind:'DAILY'},orderBy:{createdAt:'desc'},take:5,include:{days:{select:{status:true,date:true,processedAt:true,reason:true}}}}),prisma.zonalConnection.findUnique({where:{restaurantId:actor.restaurantId},select:{reportAccessVerifiedAt:true}})]);
  return {workerReady:ready,lastSuccess:connection?.reportAccessVerifiedAt?.toISOString()??null,jobs:jobs.map(job=>{
   const counts=(status:string)=>job.days.filter(d=>d.status===status).length;
   const processed=job.days.filter(d=>d.status!=='PENDING'),latest=processed.filter(d=>!['FAILED','UNAVAILABLE'].includes(d.status)).map(d=>dateKey(d.date)).sort().at(-1)??null;
@@ -115,8 +100,8 @@ export async function claimSalesJob(prisma:PrismaClient){
   // Serialize only queue claiming, never browser work. The running-only unique index
   // remains the database backstop against simultaneous workers for a restaurant.
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('cocotte-sales-job-claim'))::text`;
-  return tx.$queryRaw<{id:string}[]>`UPDATE "ZonalSalesJob" SET "status"='RUNNING', "leaseToken"=${token}, "leaseUntil"=NOW()+INTERVAL '120 seconds', "updatedAt"=NOW() WHERE "id"=(SELECT candidate."id" FROM "ZonalSalesJob" candidate WHERE ((candidate."status"='QUEUED' AND (candidate."leaseUntil" IS NULL OR candidate."leaseUntil"<NOW())) OR (candidate."status"='RUNNING' AND candidate."leaseUntil"<NOW())) AND NOT EXISTS (SELECT 1 FROM "ZonalSalesJob" other WHERE other."restaurantId"=candidate."restaurantId" AND other."status"='RUNNING' AND other."id"<>candidate."id") ORDER BY CASE WHEN candidate."status"='RUNNING' THEN 0 WHEN candidate."phase"='APPROVE' THEN 1 WHEN candidate."kind"='DAILY' THEN 2 ELSE 3 END, candidate."createdAt" FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING "id"`;
+  return tx.$queryRaw<{id:string}[]>`UPDATE "ZonalSalesJob" SET "status"='RUNNING', "leaseToken"=${token}, "leaseUntil"=NOW()+INTERVAL '120 seconds', "updatedAt"=NOW() WHERE "id"=(SELECT candidate."id" FROM "ZonalSalesJob" candidate WHERE candidate."kind"='DAILY' AND ((candidate."status"='QUEUED' AND (candidate."leaseUntil" IS NULL OR candidate."leaseUntil"<NOW())) OR (candidate."status"='RUNNING' AND candidate."leaseUntil"<NOW())) AND NOT EXISTS (SELECT 1 FROM "ZonalSalesJob" other WHERE other."restaurantId"=candidate."restaurantId" AND other."status"='RUNNING' AND other."id"<>candidate."id") ORDER BY CASE WHEN candidate."status"='RUNNING' THEN 0 WHEN candidate."phase"='APPROVE' THEN 1 WHEN candidate."kind"='DAILY' THEN 2 ELSE 3 END, candidate."createdAt" FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING "id"`;
  });
  return rows[0]?{id:rows[0].id,token}:null;
 }
-export async function ownedJob(tx:PrismaClient|Prisma.TransactionClient,id:string,token:string){return tx.zonalSalesJob.findFirst({where:{id,leaseToken:token,status:'RUNNING',leaseUntil:{gt:new Date()}}});}
+export async function ownedJob(tx:PrismaClient|Prisma.TransactionClient,id:string,token:string){return tx.zonalSalesJob.findFirst({where:{id,kind:'DAILY',leaseToken:token,status:'RUNNING',leaseUntil:{gt:new Date()}}});}

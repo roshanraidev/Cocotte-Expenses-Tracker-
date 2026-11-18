@@ -3,7 +3,7 @@ import {requireAdmin} from '@/lib/auth';
 import {assertPermission} from '@/lib/access';
 import {londonToday} from '@/lib/dates';
 import {weeklySyncDates} from '@/lib/zonal/weekly-range';
-import {recentWindow} from '@/lib/sales-history/jobs';
+import {recentWindow} from '@/lib/zonal/sync-config';
 import {ZonalError} from '@/lib/zonal/validation';
 import {syncSelectedDates} from '@/app/(protected)/admin/integrations/zonal/batch-actions';
 export async function syncWeeklyNetSales(monday:string){

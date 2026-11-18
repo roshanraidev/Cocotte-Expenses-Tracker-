@@ -1,5 +1,5 @@
 # Build from the repository root: docker build -f ops/Dockerfile.worker -t cocotte-sales-worker .
-# Historical worker only. This does not move web-triggered Playwright/OCR tasks off Vercel.
+# Daily sales worker only; historical jobs are disabled. This does not move web-triggered Playwright/OCR tasks off Vercel.
 FROM node:24-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production \

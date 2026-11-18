@@ -1,6 +1,6 @@
 # Template for the documented Linux Node/PostgreSQL deployment. Adjust paths/user.
 [Unit]
-Description=Cocotte durable Zonal sales worker
+Description=Cocotte daily-only Zonal sales worker
 After=network-online.target
 Wants=network-online.target
 

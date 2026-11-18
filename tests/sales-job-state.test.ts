@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {jobDisplayState} from '@/lib/sales-history/job-state';
+import {jobDisplayState} from '@/lib/sales-sync/job-state';
 const job=(status:string,days:string[],leaseUntil:Date|null=null)=>({status,days:days.map(status=>({status})),leaseUntil,activeBatchId:null,phase:'FETCH'});
 describe('honest sales progress states',()=>{
  it('shows queued progress as waiting rather than pretending it is running or complete',()=>{const s=jobDisplayState(job('QUEUED',['STAGED','FAILED','PENDING'],new Date(20000)),true,10000);expect(s.state).toBe('waiting');expect(s.detail).toContain('next bounded batch');});

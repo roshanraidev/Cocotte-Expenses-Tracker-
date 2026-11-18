@@ -67,7 +67,7 @@ export async function resolveImport(prisma: PrismaClient, actor: SalesActor, id:
     if(durable){
       if(!await tx.user.count({where:{id:actor.id,restaurantId:actor.restaurantId,active:true,role:'SUPER_USER'}}))throw new ZonalError('Bulk approval permissions have been revoked.');
       await tx.$queryRaw`SELECT id FROM "ZonalSalesJob" WHERE id=${durable.jobId} FOR UPDATE`;
-      const evidence=await tx.zonalSalesJobDay.findFirst({where:{id:durable.dayId,jobId:durable.jobId,previewId:id,fingerprint:record.fingerprint,date:record.date,status:'APPROVAL_QUEUED',job:{restaurantId:actor.restaurantId,actorId:actor.id,phase:'APPROVE',status:'RUNNING',leaseToken:durable.token,leaseUntil:{gt:new Date()}}}});
+      const evidence=await tx.zonalSalesJobDay.findFirst({where:{id:durable.dayId,jobId:durable.jobId,previewId:id,fingerprint:record.fingerprint,date:record.date,status:'APPROVAL_QUEUED',job:{restaurantId:actor.restaurantId,actorId:actor.id,kind:'DAILY',phase:'APPROVE',status:'RUNNING',leaseToken:durable.token,leaseUntil:{gt:new Date()}}}});
       if(!evidence)throw new ZonalError('Durable approval authorization expired or changed.');
     }
     const assessment=await previewAssessment(tx,actor.restaurantId,record,new Date(),!!durable);

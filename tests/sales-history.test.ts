@@ -29,25 +29,3 @@ describe('historical data source isolation',()=>{
   expect(findMany.mock.calls[0][0].where.restaurantId).toBe('one');expect(evidence.mock.calls[0][0].where).toMatchObject({restaurantId:'one',status:'APPROVED',completedAt:{not:null}});expect(result[0]).toMatchObject({net:'10000',food:null,drink:null});expect(transaction.mock.calls[0][1]).toEqual({isolationLevel:'RepeatableRead'});
  });
 });
-
-describe('resumable bounded backfill',()=>{
- it('resumes after interruption, skips successful dates and retries failures separately',async()=>{
-  const {retrievalProgress}=await import('@/lib/sales-history/backfill');
-  const progress=retrievalProgress('2026-01-01','2026-01-12',[
-   {date:new Date('2026-01-01'),status:'UNCHANGED',preview:null},
-   {date:new Date('2026-01-02'),status:'FAILED',preview:null},
-   {date:new Date('2026-01-03'),status:'NEW',preview:{status:'PREVIEW',createdAt:new Date()}},
-  ]);
-  expect(progress.retrieved).toBe(2);expect(progress.next).toEqual({from:'2026-01-04',to:'2026-01-10'});expect(progress.retry).toEqual({from:'2026-01-02',to:'2026-01-02'});
- });
- it('expired previews become retrievable, approved days persist, duplicates do not inflate progress',async()=>{
-  const {retrievalProgress}=await import('@/lib/sales-history/backfill');
-  const progress=retrievalProgress('2026-01-01','2026-01-03',[
-   {date:new Date('2026-01-01'),status:'APPROVED',preview:null},
-   {date:new Date('2026-01-01'),status:'UNCHANGED',preview:null},
-   {date:new Date('2026-01-02'),status:'NEW',preview:{status:'PREVIEW',createdAt:new Date(Date.now()-31*60000)}},
-   {date:new Date('2026-01-03'),status:'FAILED',preview:null}
-  ]);
-  expect(progress.retrieved).toBe(1);expect(progress.next).toEqual({from:'2026-01-02',to:'2026-01-02'});expect(progress.failed).toEqual(['2026-01-03']);
- });
-});

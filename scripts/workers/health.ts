@@ -1,7 +1,7 @@
 // Database heartbeat check for the initial single-worker deployment. No sensitive output.
 import 'dotenv/config';
 import { db } from '../../src/lib/db';
-import { workerReady } from '../../src/lib/sales-history/jobs';
+import { workerReady } from '../../src/lib/sales-sync/jobs';
 
 const prisma = db();
 try {

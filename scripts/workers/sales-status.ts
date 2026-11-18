@@ -1,4 +1,4 @@
 import 'dotenv/config';
 import {db} from '../../src/lib/db';
-import {workerReady} from '../../src/lib/sales-history/jobs';
+import {workerReady} from '../../src/lib/sales-sync/jobs';
 const prisma=db();try{console.log(JSON.stringify({workerHealthy:await workerReady(prisma),activeJobs:await prisma.zonalSalesJob.count({where:{status:{in:['QUEUED','RUNNING','PAUSED']}}}),canonicalSales:await prisma.dailySales.count(),jobs:await prisma.zonalSalesJob.findMany({orderBy:{createdAt:'desc'},take:2,select:{id:true,kind:true,status:true,phase:true,createdAt:true,latestAvailable:true,leaseUntil:true,activeBatchId:true,lastError:true,_count:{select:{days:true}}}}),dayCounts:await prisma.zonalSalesJobDay.groupBy({by:['status'],_count:{_all:true}}),encryptedConnectionPresent:await prisma.zonalConnection.count({where:{encryptedCredentials:{not:null}}})>0}));}finally{await prisma.$disconnect();}
