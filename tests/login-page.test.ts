@@ -1,0 +1,11 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({current:vi.fn(),headers:vi.fn(),redirect:vi.fn((path:string)=>{throw new Error('REDIRECT:'+path);})}));
+vi.mock('@/lib/auth',()=>({currentUser:mocks.current}));
+vi.mock('next/headers',()=>({headers:mocks.headers}));
+vi.mock('next/navigation',()=>({redirect:mocks.redirect}));
+vi.mock('@/components/login-form',()=>({LoginForm:()=>null}));
+import LoginPage from '@/app/login/page';
+beforeEach(()=>{vi.clearAllMocks();mocks.headers.mockResolvedValue(new Headers());mocks.current.mockResolvedValue(null);});
+it('renders a closed scene for an anonymous visit',async()=>{const page=await LoginPage();expect(page.props).toEqual({});expect(mocks.redirect).not.toHaveBeenCalled();});
+it('preserves normal authenticated GET redirects to the permitted home',async()=>{mocks.current.mockResolvedValue({role:'CHEF',permissions:['recipes.view']});await expect(LoginPage()).rejects.toThrow('REDIRECT:/recipes');});
+it('keeps the scene mounted during cookie-triggered action refresh without declaring authentication success in client props',async()=>{mocks.current.mockResolvedValue({role:'CHEF',permissions:['recipes.view']});mocks.headers.mockResolvedValue(new Headers({'next-action':'fixture-action'}));const page=await LoginPage();expect(page.props).toEqual({});expect(mocks.redirect).not.toHaveBeenCalled();});
