@@ -70,6 +70,8 @@ model Restaurant {
   recipeTypes RecipeType[]
   recipes Recipe[]
   recipeFeatures RecipeFeatureSettings?
+  recipeLibraryDefault RestaurantRecipeLibrary?
+  recipeLibraries UserRecipeLibrary[]
   zonalSyncBatches ZonalSyncBatch[]
   foodCostPeriods FoodCostPeriod[]
   foodCostPreviews FoodCostPreview[]
@@ -112,6 +114,8 @@ model User {
   sessions     Session[]
   auditLogs    AuditLog[]
 
+  recipeLibrary UserRecipeLibrary?
+  @@unique([id, restaurantId])
   @@index([restaurantId, active])
 }
 
@@ -770,4 +774,27 @@ model ZonalSalesJobDay {
 model ZonalSalesWorker {
  id String @id
  heartbeatAt DateTime @default(now())
+}
+
+// Display preferences only; recipe records, costing and historical references are untouched.
+model RestaurantRecipeLibrary {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  recipeIds String[] @default([])
+  revision Int @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model UserRecipeLibrary {
+  userId String @id
+  restaurantId String
+  user User @relation(fields: [userId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  personalOrder Json?
+  filters Json @default("{}")
+  orderRevision Int @default(0)
+  filtersRevision Int @default(0)
+  updatedAt DateTime @updatedAt
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
 }
