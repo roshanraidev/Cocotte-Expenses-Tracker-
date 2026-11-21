@@ -11,11 +11,15 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => { throw new Error(`redirect:${url}`); },
   notFound: () => { throw new Error('not found'); },
+  useSearchParams:()=>new URLSearchParams(),
+  useRouter:()=>({push:vi.fn(),replace:vi.fn(),refresh:vi.fn()}),
 }));
 vi.mock('@/lib/db', () => ({ db: () => ({
   $queryRaw: mocks.query, $executeRaw: mocks.execute,
   $transaction: mocks.transaction,
   session: { findUnique: mocks.session },
+  restaurantRecipeLibrary:{findUnique:async()=>null},
+  userRecipeLibrary:{findFirst:async()=>null},
 }) }));
 import { saveRecipe } from '@/app/(protected)/recipes/actions';
 import { recipe } from '@/lib/recipes';
