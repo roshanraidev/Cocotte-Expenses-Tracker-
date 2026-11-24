@@ -144,7 +144,10 @@ it('uploads, keeps, replaces and removes stored photos with fresh URLs and uncac
   expect(stored.rows[0]).toEqual({ imageBytes: null, imageMime: null });
   expect((await image()).status).toBe(404);
   expect((await image()).headers.get('Cache-Control')).toBe('private, no-store');
-  expect(renderToStaticMarkup(await RecipePage({ params: Promise.resolve({ id }) }))).toContain('No image');
+  const withoutPhoto = renderToStaticMarkup(await RecipePage({ params: Promise.resolve({ id }) }));
+  expect(withoutPhoto).toContain('recipe-identity-no-photo');
+  expect(withoutPhoto).not.toContain('recipe-identity-photo');
+  expect(withoutPhoto).not.toContain('No image');
 });
 
 it.each([
@@ -502,8 +505,21 @@ it('filters sidebar snapshots in SQL and updates publish/unpublish/remove withou
  data.set('id',current.id);data.set('status','DRAFT');await saveWeeklySpecial(data);expect((await publishedSpecialCards(db(),'restaurant','2026-11-22')).some(item=>item.id===current.id)).toBe(false);
  data.set('status','PUBLISHED');await saveWeeklySpecial(data);await removeWeeklySpecial(data);expect((await publishedSpecialCards(db(),'restaurant','2026-11-22')).some(item=>item.id===current.id)).toBe(false);expect(await recipe('restaurant',id,true)).not.toBeNull();
 });
-it('denies special management to a non-Super User even with recipe edit permission',async()=>{
+it('keeps delegated recipe and specials management available to managers',async()=>{
  const {saveWeeklySpecial,removeWeeklySpecial,setWeeklySpecialsEnabled}=await import('@/app/(protected)/recipes/special-actions');
+ const {weeklySpecials}=await import('@/lib/recipe-features');
  mocks.session.mockResolvedValue({user:{id:'manager',restaurantId:'restaurant',role:'CHEF',active:true,accessRole:'MANAGER'},expiresAt:new Date(Date.now()+60000)});
- for(const action of [saveWeeklySpecial,removeWeeklySpecial,setWeeklySpecialsEnabled])await expect(action(new FormData())).rejects.toThrow('Only Super Users');
+ const id=await save(form('Manager recipe','Ingredient | 1 | g'));
+ const details=renderToStaticMarkup(await RecipePage({params:Promise.resolve({id})}));
+ expect(details).toContain('EDIT RECIPE');
+ expect(details).toContain('Manager recipe');
+ const special=new FormData();special.set('recipeId',id);special.set('status','PUBLISHED');
+ await saveWeeklySpecial(special);
+ const published=(await weeklySpecials('restaurant')).specials.find(item=>item.recipeId===id);
+ expect(published).toBeDefined();
+ special.set('id',published!.id);
+ await removeWeeklySpecial(special);
+ expect((await weeklySpecials('restaurant')).specials.some(item=>item.recipeId===id)).toBe(false);
+ await setWeeklySpecialsEnabled(new FormData());
+ expect((await weeklySpecials('restaurant')).enabled).toBe(false);
 });

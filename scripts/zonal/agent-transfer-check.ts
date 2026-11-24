@@ -3,6 +3,7 @@ import {PrismaClient} from '../../src/generated/prisma/client';
 import {PrismaPg} from '@prisma/adapter-pg';
 import {Pool} from 'pg';
 import {execFile,spawn,type ChildProcess} from 'node:child_process';
+import {request as httpRequest} from 'node:http';
 import {promisify} from 'node:util';
 import {mkdtemp,readdir,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -113,12 +114,30 @@ try{
  const canonical=await remote.dailySales.groupBy({by:['restaurantId','date'],_count:{_all:true}});assert(canonical.every(row=>row._count._all===1));
  // Exercise the built Next endpoint through a local reverse-proxy-shaped request.
  // The socket is loopback only; no production DNS/network/database is used.
- app=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3182'],{env:{...process.env,DATABASE_URL:remoteUrl,ZONAL_AGENT_UPLOAD_ENABLED:'false',ZONAL_AGENT_ID:agentId,ZONAL_AGENT_TOKEN_SHA256:config.tokenHash,ZONAL_AGENT_RESTAURANT_ID:targetActor.restaurantId,ZONAL_AGENT_ACTOR_ID:targetActor.id,ZONAL_AGENT_RECEIVER_ORIGIN:config.origin,ZONAL_AGENT_TRUST_PROXY:'true'},stdio:'ignore'});
+ const proxyOrigin=new URL('https://www.mrcocotte.com');
+ app=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3182'],{env:{...process.env,DATABASE_URL:remoteUrl,ZONAL_AGENT_UPLOAD_ENABLED:'false',ZONAL_AGENT_ID:agentId,ZONAL_AGENT_TOKEN_SHA256:config.tokenHash,ZONAL_AGENT_RESTAURANT_ID:targetActor.restaurantId,ZONAL_AGENT_ACTOR_ID:targetActor.id,ZONAL_AGENT_RECEIVER_ORIGIN:proxyOrigin.origin,ZONAL_AGENT_TRUST_PROXY:'true'},stdio:'ignore'});
  for(let n=0;n<100;n++){try{if((await fetch('http://127.0.0.1:3182/login')).ok)break;}catch{}await new Promise(resolve=>setTimeout(resolve,200));}
  const httpPayload=transfer(1000,addDays(date,-3));
- const send=()=>fetch('http://127.0.0.1:3182'+AGENT_PATH,{method:'POST',headers:{Host:'mrcocotte.com','X-Forwarded-Proto':'https',Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(httpPayload)});
- const firstHttp=await send();const firstReceipt=await firstHttp.json();assert.equal(firstHttp.status,200,JSON.stringify(firstReceipt));
- const repeatHttp=await send();assert.equal(repeatHttp.status,200);assert.deepEqual(await repeatHttp.json(),firstReceipt);assert.equal(await remote.dailySales.count(),2);
+ const send=()=>new Promise<{status:number|undefined;body:unknown}>((resolve,reject)=>{
+  const body=JSON.stringify(httpPayload);
+  const request=httpRequest({hostname:'127.0.0.1',port:3182,path:AGENT_PATH,method:'POST',headers:{
+   Host:proxyOrigin.host,'X-Forwarded-Proto':'https',Authorization:'Bearer '+token,
+   'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),
+  }},response=>{
+   let text='';
+   response.setEncoding('utf8');
+   response.on('data',chunk=>{text+=chunk;});
+   response.on('error',reject);
+   response.on('end',()=>{
+    try{resolve({status:response.statusCode,body:JSON.parse(text)});}
+    catch{reject(new Error('Expected a JSON receipt, received HTTP '+response.statusCode));}
+   });
+  });
+  request.on('error',reject);
+  request.end(body);
+ });
+ const firstHttp=await send();assert.equal(firstHttp.status,200,JSON.stringify(firstHttp.body));
+ const repeatHttp=await send();assert.equal(repeatHttp.status,200);assert.deepEqual(repeatHttp.body,firstHttp.body);assert.equal(await remote.dailySales.count(),2);
  console.log('PASS built Next endpoint: trusted reverse-proxy shape, upload/replay acknowledgements and no automatic sales changes. Loopback HTTP simulation only; live HTTPS remains unverified.');
  console.log('PASS: isolated Mac/production databases; atomic rollback/outbox hooks; lost acknowledgements; concurrent receipts/leases; idempotent previews; branch/restaurant/actor isolation; revocation; missing forecasts; explicit approval/manual correction; stale ordering; 30-minute expiry; unchanged-local captures; forecasts unchanged. No external requests or real records used.');
 }finally{

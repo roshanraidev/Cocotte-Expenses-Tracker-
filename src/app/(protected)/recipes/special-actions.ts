@@ -6,14 +6,8 @@ import { db } from '@/lib/db';
 import { requirePermission } from '@/lib/auth';
 import { lockRecipeGraph, RecipeFeatureError, specialDates } from '@/lib/recipe-features';
 
-async function specialsManager(){
- const user=await requirePermission('recipes.edit');
- if(user.role!=='SUPER_USER')throw new RecipeFeatureError('Only Super Users can manage weekly specials.');
- return user;
-}
-
 export async function saveWeeklySpecial(form: FormData) {
-  const user = await specialsManager();
+  const user = await requirePermission('recipes.edit');
   const id = String(form.get('id') ?? ''), recipeId = String(form.get('recipeId') ?? '');
   const status = String(form.get('status') ?? 'DRAFT');
   if (!['DRAFT', 'PUBLISHED'].includes(status)) throw new RecipeFeatureError('Choose Draft or Publish.');
@@ -40,13 +34,13 @@ export async function saveWeeklySpecial(form: FormData) {
   revalidatePath('/recipes', 'layout');
 }
 export async function removeWeeklySpecial(form: FormData) {
-  const user = await specialsManager();
+  const user = await requirePermission('recipes.edit');
   const id = String(form.get('id') ?? '');
   await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`DELETE FROM "WeeklySpecial" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);});
   revalidatePath('/recipes', 'layout');
 }
 export async function setWeeklySpecialsEnabled(form: FormData) {
-  const user = await specialsManager();
+  const user = await requirePermission('recipes.edit');
   const enabled = form.get('enabled') === 'on';
   await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`INSERT INTO "RecipeFeatureSettings"("restaurantId","weeklySpecialsEnabled") VALUES(${user.restaurantId},${enabled}) ON CONFLICT("restaurantId") DO UPDATE SET "weeklySpecialsEnabled"=EXCLUDED."weeklySpecialsEnabled"`);});
   revalidatePath('/recipes', 'layout');

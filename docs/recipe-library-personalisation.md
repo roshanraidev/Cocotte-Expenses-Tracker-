@@ -1,6 +1,6 @@
 # Recipe Library personalisation
 
-The base personalisation feature is deployed. The latest whole-card gesture update is local and has not yet been committed or deployed. It does not modify recipe content, photographs, costing, permissions or financial data.
+The Recipe Library supports persistent personal ordering and filters, including whole-card drag gestures. It does not modify recipe content, photographs, costing, permissions or financial data.
 
 ## Using the library
 
@@ -10,7 +10,7 @@ The base personalisation feature is deployed. The latest whole-card gesture upda
 - Normal recipe links and edit/archive actions remain available. Quick clicks open recipes; short swipes scroll. The existing three-dot menu and its controls are excluded from drag activation. Native link/image dragging and touch previews are suppressed only where needed to support the card gesture.
 - Save failures retain the arrangement and show Retry/Reload feedback. Overlapping drops are blocked while saving. Navigation/filter changes wait for pending order saves; unsaved failures are not silently discarded.
 - Category, search, active/archive tab and archive sorting remain stored per user. Search waits 500 ms of inactivity. Nothing is stored in browser local storage.
-- Archived recipes keep their existing table, sorting and restore workflow, without drag handles. No schema change was required for inline autosaving.
+- Archived recipes keep their existing table, sorting and restore workflow without drag gestures. No schema change was required for inline autosaving.
 
 ## Storage and concurrency
 
@@ -26,7 +26,7 @@ Saving an order requires exactly the complete authorized active collection, with
 
 ## Migration and local verification
 
-The initial implementation left all existing databases unchanged. On 21 November 2026, the reviewed `20261121000100_recipe_library_preferences` migration was applied to the verified local Mac database (`127.0.0.1:5432/restaurant_cost_tracker`) after a verified full backup. A scoped Prisma migration catalog excluded the unrelated pending Mac-to-AWS migration `20261120000100_zonal_agent_transfer`, which remains pending. AWS production was not accessed or migrated. Do not blindly apply all pending migrations to production; review and release them with their corresponding code.
+This feature uses the existing `20261121000100_recipe_library_preferences` migration. Whole-card gestures use the same storage as handle-based sorting. The Zonal agent and kitchen notifications migrations are separate releases.
 
 Before applying the new migration to an existing database, back it up and inspect `npx prisma migrate status`. After the pending migration set has been explicitly reviewed for that environment, use the project's normal Prisma migration workflow. Never reset or seed. Until the preference tables exist, the library keeps its existing GET search/category/archive controls and shows a setup notice instead of crashing.
 
@@ -62,12 +62,3 @@ Dependency check: npm audit reports three existing high-severity findings in the
 - `tests/recipes.test.ts` (existing page-test router/preference fixtures updated)
 - `scripts/recipe-personalisation-check.ts` (new, disposable database/browser regression)
 - `docs/recipe-library-personalisation.md` (new)
-
-## Local setup verification — 21 November 2026
-
-- Backup: `backups/pre-recipe-personalisation-2026-11-21T16-50-19.656Z/restaurant_cost_tracker.dump` (5,471,675 bytes; private permissions; readable/decompressible by pg_restore).
-- Prisma client regenerated. Recipe migration recorded as applied; only the unrelated Zonal agent migration remains pending.
-- All 42 original tables and 6,288 original records matched their pre-migration counts and content checksums, including 13 recipes, 3 users, 38 daily-sales records and 67 purchasing invoices.
-- Actual local database checks passed for restaurant default ordering, personal ordering, filter write/readback, reset, and server-side default-order permissions. These verification writes were rolled back, preserving user preferences and existing audit records.
-- Real browser inspection of `http://localhost:3000/recipes` confirmed the database-update warning is absent and recipe personalisation is available. A temporary verification session was revoked afterward; original sessions remained unchanged.
-- Typecheck and 33 focused recipe tests passed. No reset, seed, production change, commit, push or deployment was performed.

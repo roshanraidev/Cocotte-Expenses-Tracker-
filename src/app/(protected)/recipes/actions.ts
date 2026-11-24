@@ -6,20 +6,20 @@ import { Prisma } from '@/generated/prisma/client';
 import { db } from '@/lib/db';
 import { lockRecipeGraph, replaceComponents, RecipeFeatureError } from '@/lib/recipe-features';
 import { setRecipeArchived } from '@/lib/recipe-archive';
-import {requireRecipePublisher} from '@/lib/kitchen/recipe-permissions';
+import { requirePermission } from '@/lib/auth';
 
 const clean=(v:FormDataEntryValue|null,max=5000)=>String(v??'').trim().slice(0,max);
 const bool=(v:FormDataEntryValue|null)=>v==='on';
 function ingredients(raw:string){return raw.split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{const [name='',quantity='',unit='']=line.split('|').map(x=>x.trim());return {name,quantity,unit};}).filter(x=>x.name);}
 export async function saveRecipeType(form:FormData){
- const user=await requireRecipePublisher('recipes.edit'),id=clean(form.get('id'),100),name=clean(form.get('name'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0),visible=bool(form.get('visible'));
+ const user=await requirePermission('recipes.edit'),id=clean(form.get('id'),100),name=clean(form.get('name'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0),visible=bool(form.get('visible'));
  if(!name) throw new Error('Recipe type name is required.');
  if(id) await db().$executeRaw(Prisma.sql`UPDATE "RecipeType" SET name=${name},visible=${visible},"sortOrder"=${sortOrder},"updatedAt"=NOW() WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);
  else await db().$executeRaw(Prisma.sql`INSERT INTO "RecipeType"(id,"restaurantId",name,visible,"sortOrder","createdAt","updatedAt") VALUES(${randomUUID()},${user.restaurantId},${name},${visible},${sortOrder},NOW(),NOW())`);
  revalidatePath('/recipes', 'layout');
 }
 export async function deleteRecipeType(form:FormData){
- const user=await requireRecipePublisher('recipes.edit'),id=clean(form.get('id'),100);
+ const user=await requirePermission('recipes.edit'),id=clean(form.get('id'),100);
  if(id)await db().$transaction(async tx=>{
   await lockRecipeGraph(tx,user.restaurantId);
   const rows=await tx.$queryRaw<{id:string}[]>(Prisma.sql`SELECT id FROM "Recipe" WHERE "typeId"=${id} AND "restaurantId"=${user.restaurantId} LIMIT 1`);
@@ -29,7 +29,7 @@ export async function deleteRecipeType(form:FormData){
  revalidatePath('/recipes', 'layout');
 }
 export async function saveRecipe(form:FormData){
- const id=clean(form.get('id'),100),user=await requireRecipePublisher(id?'recipes.edit':'recipes.create'),name=clean(form.get('name'),120),typeId=clean(form.get('typeId'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0);
+ const id=clean(form.get('id'),100),user=await requirePermission(id?'recipes.edit':'recipes.create'),name=clean(form.get('name'),120),typeId=clean(form.get('typeId'),100),sortOrder=Number(clean(form.get('sortOrder'),10)||0);
  if(!name||!typeId) throw new Error('Recipe name and recipe type are required.');
  const data={visible:bool(form.get('visible')),beforeService:form.has('method')?String(form.get('method')??''):String(form.get('beforeService')??''),onOrder:form.has('method')?'':String(form.get('onOrder')??''),allergens:clean(form.get('allergens'),1000),mayContain:clean(form.get('mayContain'),1000),suitability:clean(form.get('suitability'),1000),ingredients:ingredients(String(form.get('ingredients')??''))};
  const removeImage=form.get('removeImage')==='true';
@@ -55,11 +55,11 @@ export async function saveRecipe(form:FormData){
 }
 // Keep the existing Delete action contract, but make permanent deletion impossible here.
 export async function deleteRecipe(form:FormData){
- const user=await requireRecipePublisher('recipes.archive');await setRecipeArchived(db(),user,clean(form.get('id'),100),true);
+ const user=await requirePermission('recipes.archive');await setRecipeArchived(db(),user,clean(form.get('id'),100),true);
  revalidatePath('/recipes','layout');redirect('/recipes?notice=archived');
 }
 export async function restoreRecipe(form:FormData){
- const user=await requireRecipePublisher('recipes.restore');await setRecipeArchived(db(),user,clean(form.get('id'),100),false);
+ const user=await requirePermission('recipes.restore');await setRecipeArchived(db(),user,clean(form.get('id'),100),false);
  revalidatePath('/recipes','layout');redirect('/recipes?notice=restored');
 }
 export async function archiveRecipeFormAction(_: {error:string},form:FormData):Promise<{error:string}>{

@@ -7,7 +7,7 @@
 - Shared left navigation: Recipes → Weekly Specials (published names/count) → Notifications. Mobile More uses the same links; the header bell is available on mobile and desktop.
 - Persistent recipe publication/update, ingredient/allergen/component change, special publication/change/removal and important announcement events. Events are generated inside the source database transaction; rollback means no event. Existing records are not backfilled into notifications.
 - Notification centre with read/unread controls, separate in-app/push category preferences and Super User announcement publishing. Read state and preferences propagate to other sessions.
-- Only Super Users can mutate recipes, categories, archives/restores, specials or announcements. Recipe access remains required. Personal card arrangements remain available to all authorised recipe viewers.
+- Recipe, category, archive and specials actions continue to require their existing recipe permissions. Only Super Users can publish announcements. Personal card arrangements remain available to all authorised recipe viewers.
 - Current recipe/category visibility, archive state, user activity, permissions and restaurant ownership are checked for feeds, notification links and push delivery. Old links cannot open unpublished content. Notifications predating account creation are excluded.
 - PostgreSQL LISTEN/NOTIFY → authenticated SSE. Only restaurant identifiers travel in change signals; content is re-read using the current authenticated actor. One shared client connection drives the navigation, bell and notification centre.
 - Durable Web Push queue with database row locks, expiring leases, unique event/subscription identity, bounded retry and expired subscription removal. Encryption is AES-256-GCM with a separate server key. Browser endpoint allowlists prevent arbitrary server-side requests. Maximum five endpoints per account.
@@ -82,7 +82,7 @@ Applying triggers requires an appropriate database migration role that owns the 
 
 Shared shell/navigation: `src/components/application-shell.tsx`, `src/components/navigation.tsx`, `src/lib/navigation.ts`.
 
-Recipe presentation/security: `src/app/(protected)/recipes/page.tsx`, `recipes/actions.ts`, `recipes/edit/page.tsx`, `recipes/[id]/page.tsx`; the former `weekly-specials-sidebar.tsx` and CSS were removed. Existing Super User Specials forms remain.
+Recipe presentation/security: `src/app/(protected)/recipes/page.tsx`, `recipes/actions.ts`, `recipes/edit/page.tsx`, `recipes/[id]/page.tsx`; the former `weekly-specials-sidebar.tsx` and CSS were removed. Existing Specials forms remain available to users with recipe edit permission.
 
 New notification implementation: `src/lib/kitchen/*`, `src/components/kitchen/*`, `src/app/api/kitchen/*`, `src/app/(protected)/notifications/*`, `src/app/manifest.ts`, `public/kitchen-sw.js`, `scripts/workers/notifications.ts`.
 

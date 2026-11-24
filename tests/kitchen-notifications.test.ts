@@ -5,8 +5,8 @@ import {seal,unseal,safeSubscription,sameOrigin} from '../src/lib/kitchen/securi
 import {missingKitchenSchema} from '../src/lib/kitchen/schema-state';
 import {enabled} from '../src/lib/kitchen/types';
 vi.mock('server-only',()=>({}));
-const auth=vi.hoisted(()=>({requirePermission:vi.fn()}));vi.mock('@/lib/auth',()=>auth);
-import {requireRecipePublisher} from '../src/lib/kitchen/recipe-permissions';
+const auth=vi.hoisted(()=>({currentUser:vi.fn()}));vi.mock('@/lib/auth',()=>auth);
+import {POST} from '@/app/api/kitchen/notifications/route';
 describe('Kitchen security',()=>{
  it('recognises only missing kitchen tables, including Prisma 7 raw adapter errors',()=>{
   expect(missingKitchenSchema({code:'P2010',meta:{driverAdapterError:{cause:{originalCode:'42P01',table:'KitchenEvent'}}}})).toBe(true);
@@ -19,7 +19,14 @@ describe('Kitchen security',()=>{
  it('rejects SSRF targets and invalid push keys',()=>{for(const endpoint of ['http://localhost/push','https://127.0.0.1/push','https://evil.test/push','https://fcm.googleapis.com:444/push'])expect(()=>safeSubscription({endpoint,keys:{p256dh:'a'.repeat(87),auth:'a'.repeat(22)}})).toThrow();expect(safeSubscription({endpoint:'https://fcm.googleapis.com/push',keys:{p256dh:'a'.repeat(87),auth:'a'.repeat(22)}}).endpoint).toContain('googleapis');});
  it('rejects cross-site credentialed writes',()=>{expect(sameOrigin(new Request('https://cocotte.test/api',{headers:{Origin:'https://evil.test'}}))).toBe(false);expect(sameOrigin(new Request('https://cocotte.test/api',{headers:{Origin:'https://cocotte.test'}}))).toBe(true);});
  it('respects independent category choices',()=>{expect(enabled({},'specials')).toBe(true);expect(enabled({specials:false},'specials')).toBe(false);expect(enabled({specials:false},'new')).toBe(true);});
- it('only lets Super Users publish regardless of assigned edit permission',async()=>{auth.requirePermission.mockResolvedValue({role:'CHEF',permissions:['recipes.edit']});await expect(requireRecipePublisher('recipes.edit')).rejects.toThrow('Only Super');auth.requirePermission.mockResolvedValue({role:'SUPER_USER'});expect((await requireRecipePublisher('recipes.edit')).role).toBe('SUPER_USER');});
+ it('restricts kitchen announcements to Super Users even with delegated recipe edit permission',async()=>{
+  auth.currentUser.mockResolvedValue({role:'CHEF',permissions:['recipes.view','recipes.edit']});
+  const request=new Request('https://cocotte.test/api/kitchen/notifications',{
+   method:'POST',headers:{Origin:'https://cocotte.test'},
+   body:JSON.stringify({operation:'announcement',title:'Test',body:'Fixture only',published:true}),
+  });
+  expect((await POST(request)).status).toBe(403);
+ });
 });
 it('records recipe and special events transactionally without rewriting existing data',async()=>{
  const p=new PGlite();try{

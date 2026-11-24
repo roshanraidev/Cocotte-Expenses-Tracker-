@@ -14,11 +14,12 @@ import { recipeDetailMethod, recipeDetailText } from '../recipe-detail-values';
 export default async function RecipePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission('recipes.view');
   const { id } = await params;
-  const isSuperUser = user.role === 'SUPER_USER';
-  const r = await recipe(user.restaurantId, id, isSuperUser);
+  const canViewHidden = can(user, 'recipes.edit') || can(user, 'recipes.create') ||
+    can(user, 'recipes.archive') || can(user, 'recipes.restore');
+  const r = await recipe(user.restaurantId, id, canViewHidden);
   if (!r) notFound();
 
-  const components = await recipeComponents(user.restaurantId, id, isSuperUser);
+  const components = await recipeComponents(user.restaurantId, id, canViewHidden);
   const category = recipeDetailText(r.typeName);
   const suitability = recipeDetailText(r.suitability);
   const allergens = recipeDetailText(r.allergens);
@@ -32,7 +33,7 @@ export default async function RecipePage({ params }: { params: Promise<{ id: str
     <article className="recipe-sheet">
       <nav className="recipe-detail-navigation" aria-label="Recipe navigation">
         <Link href="/recipes"><ArrowLeft size={15} />Recipe library</Link>
-        {isSuperUser && can(user, 'recipes.edit') && !r.archivedAt &&
+        {can(user, 'recipes.edit') && !r.archivedAt &&
           <Link href={'/recipes/edit?id=' + r.id}>EDIT RECIPE<ArrowUpRight size={14} /></Link>}
       </nav>
 
@@ -42,7 +43,7 @@ export default async function RecipePage({ params }: { params: Promise<{ id: str
             <strong>Archived recipe</strong>
             <p>Kept for reference. Restore it to return it to active recipe selections.</p>
           </div>
-          {isSuperUser && can(user, 'recipes.restore') && (
+          {can(user, 'recipes.restore') && (
             <RecipeActionForm action={restoreRecipeFormAction}>
               <input type="hidden" name="id" value={r.id} />
               <button className="btn">Restore Recipe</button>

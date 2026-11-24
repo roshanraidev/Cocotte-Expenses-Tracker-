@@ -87,7 +87,7 @@ ZONAL_AGENT_ID=mac-parsons-green-v1
 ZONAL_AGENT_TOKEN_SHA256=<verification hash printed by the Mac helper>
 ZONAL_AGENT_RESTAURANT_ID=<existing production restaurant ID>
 ZONAL_AGENT_ACTOR_ID=<existing active production Super User ID>
-ZONAL_AGENT_RECEIVER_ORIGIN=https://mrcocotte.com
+ZONAL_AGENT_RECEIVER_ORIGIN=https://www.mrcocotte.com
 # For a private Node listener behind your reviewed HTTPS reverse proxy only:
 ZONAL_AGENT_TRUST_PROXY=true
 ```
@@ -121,7 +121,7 @@ ZONAL_AGENT_UPLOAD_ENABLED=true
 ZONAL_AGENT_ID=mac-parsons-green-v1
 ZONAL_AGENT_LOCAL_RESTAURANT_ID=<existing local restaurant ID>
 ZONAL_AGENT_KEYCHAIN_ACCOUNT=cocotte-upload-v1
-ZONAL_AGENT_UPLOAD_URL=https://mrcocotte.com/api/zonal/agent/sales
+ZONAL_AGENT_UPLOAD_URL=https://www.mrcocotte.com/api/zonal/agent/sales
 ```
 
 `DATABASE_URL` remains the existing **local loopback** PostgreSQL URL. Do not copy the production

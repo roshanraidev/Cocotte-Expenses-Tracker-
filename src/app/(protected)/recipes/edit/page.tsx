@@ -5,13 +5,11 @@ import { notFound,redirect } from 'next/navigation';
 import RecipePhoto from '../recipe-photo';
 import { preparationMethod } from '@/lib/recipe-method';
 import Link from 'next/link';
-import {requirePermission} from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { recipe, recipeTypes, recipes } from '@/lib/recipes';
 import { recipeFormAction } from '../actions';
 export default async function RecipeEditor({searchParams}:{searchParams:Promise<{id?:string}>}){
- const {id}=await searchParams,user=await requirePermission(id?'recipes.edit':'recipes.create');
- if(user.role!=='SUPER_USER')redirect('/access-denied');
- const types=await recipeTypes(user.restaurantId,true),r=id?await recipe(user.restaurantId,id,true):null;
+ const {id}=await searchParams,user=await requirePermission(id?'recipes.edit':'recipes.create'),types=await recipeTypes(user.restaurantId,true),r=id?await recipe(user.restaurantId,id,true):null;
  if(id&&!r)notFound();
  if(r?.archivedAt)redirect('/recipes?tab=archived');
  const initialIds=id?(await componentLinks(user.restaurantId)).filter(link=>link.recipeId===id).map(link=>link.componentId):[];
