@@ -1,5 +1,6 @@
-.adaptive-shell{min-height:100dvh}
-.shell-content{min-width:0}
+body:has(.adaptive-shell){overflow:hidden}
+.adaptive-shell{position:fixed;inset:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--background,#faf9f5);isolation:isolate}
+.shell-content{min-width:0;min-height:0;overflow-y:auto;overflow-x:clip;overscroll-behavior-y:contain;scroll-padding-block:64px 24px;-webkit-overflow-scrolling:touch}
 .desktop-sidebar,.mobile-bottom{display:none}
 .shell-skip{position:fixed;top:8px;left:8px;z-index:100;background:#fff8e8;color:#123b2c;padding:12px;transform:translateY(-150%)}
 .shell-skip:focus{transform:none}
@@ -27,20 +28,23 @@ body:has(.navigation-sheet[open]){overflow:hidden}
 .adaptive-shell .workspace{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));padding-top:max(16px,env(safe-area-inset-top,0px));scroll-margin-bottom:90px}
 .adaptive-shell .workspace :is(input,textarea,button,a){scroll-margin-bottom:100px}
 
-@media(min-width:768px){.adaptive-shell{display:grid;grid-template-columns:236px minmax(0,1fr);transition:grid-template-columns 200ms ease}
+@media(min-width:768px){.adaptive-shell{display:grid;grid-template-columns:236px minmax(0,1fr);grid-template-rows:68px minmax(0,1fr);transition:grid-template-columns 200ms ease}
 .adaptive-shell.is-collapsed{grid-template-columns:80px minmax(0,1fr)}
-.desktop-sidebar{position:sticky;top:0;display:flex;flex-direction:column;height:100dvh;padding:20px 15px 14px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#53715e transparent}
+.application-header,.shell-content{grid-column:2}
+.application-header{grid-row:1}
+.shell-content{grid-row:2}
+.desktop-sidebar{grid-column:1;grid-row:1 / -1;position:relative;top:0;display:flex;flex-direction:column;height:100dvh;padding:20px 15px 14px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#53715e transparent}
 .desktop-sidebar .shell-toggle{margin-top:12px;align-self:flex-end}
 .mobile-bottom{display:none}
 .adaptive-shell .workspace{padding-bottom:40px}
 .is-collapsed .desktop-sidebar{padding:18px 10px 14px;overflow:visible}
 .is-collapsed .shell-brand>a{justify-content:center}
-.is-collapsed .brand-name,.is-collapsed .shell-workspaces,.is-collapsed .nav-label,.is-collapsed .sidebar-profile>span,.is-collapsed .sidebar-profile>div{display:none}
+.is-collapsed .brand-name,.is-collapsed .nav-label,.is-collapsed .desktop-sidebar .sidebar-profile>span,.is-collapsed .desktop-sidebar .sidebar-profile>div{display:none}
 .is-collapsed .desktop-sidebar .shell-toggle{align-self:center}
 .is-collapsed .nav-item{justify-content:center;padding:12px 0;position:relative}
 .is-collapsed .nav-section-start{margin-top:12px;padding-top:16px}
-.is-collapsed .sidebar-profile{padding:0;border:0;justify-content:center}
-.is-collapsed .sidebar-profile form{margin:0}
+.is-collapsed .desktop-sidebar .sidebar-profile{padding:0;border:0;justify-content:center}
+.is-collapsed .desktop-sidebar .sidebar-profile form{margin:0}
 .is-collapsed .nav-item:is(:hover,:focus-visible) .rail-tooltip{display:block;position:absolute;left:calc(100% + 14px);top:50%;transform:translateY(-50%);white-space:nowrap;background:#153f30;color:#fff7e5;padding:8px 12px;border:1px solid #c5ab72;border-radius:8px;box-shadow:0 4px 18px #123b2b30;z-index:60;font-size:12px;pointer-events:none}
 .is-collapsed .shell-navigation{max-height:calc(100dvh - 210px);overflow-y:auto;scrollbar-width:none}
 .is-collapsed .shell-navigation:has(.nav-item:focus-visible),.is-collapsed .shell-navigation:hover{overflow:visible}
@@ -55,36 +59,78 @@ body:has(.navigation-sheet[open]){overflow:hidden}
 }
 
 
-/* Mobile application frame: one scroll owner, with navigation outside the scrollport. */
-.mobile-app-header{display:none}
+/* Shared application header: navigation stays outside the single page scrollport. */
+.application-header{display:flex;align-items:center;gap:14px;height:calc(68px + env(safe-area-inset-top,0px));min-height:0;padding:calc(9px + env(safe-area-inset-top,0px)) max(14px,env(safe-area-inset-right,0px)) 9px max(14px,env(safe-area-inset-left,0px));background:linear-gradient(115deg,#103e2d,#0a3025);border-bottom:1px solid #c5ab7266;color:#fff9e8;box-shadow:0 2px 12px #103c2c12;z-index:30}
+.mobile-identity{display:flex;gap:8px;align-items:center;min-height:44px;flex-shrink:0;font:23px/1 Georgia,serif;color:#fff9e8}
+.mobile-identity small{display:block;margin-top:5px;font:7px/1.2 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#ddca98}
+.mobile-chef{display:grid;place-items:center;width:36px;height:40px;color:#dec58c;border:1px solid #dec58c66;border-radius:11px}
+.application-page-context{min-width:0;margin-left:auto;padding-left:12px;border-left:1px solid #ffffff25;text-align:right}
+.application-page-context p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:13px;font-weight:600;line-height:1.25;color:#fff9e8}
+.application-page-context small{display:block;margin-top:4px;font-size:10px;line-height:1.3;color:#d1d9c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adaptive-shell [data-shell-heading]{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}
+.adaptive-shell .eyebrow:has(+[data-shell-heading]){display:none}
+.adaptive-shell .recipe-heading-identity:has([data-shell-heading]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.adaptive-shell .recipe-mobile-heading,.adaptive-shell .recipe-mobile-heading.is-compact{top:0;padding:6px 0;gap:0;margin-bottom:12px;background:var(--background,#faf9f5)}
+.adaptive-shell .recipe-library #recipe-library-filters{scroll-margin-top:60px}
+.application-header-actions{display:none}
+.adaptive-shell .recipe-mobile-heading{position:sticky;z-index:20}
+.adaptive-shell .workspace{min-height:100%;padding-top:16px}
+.adaptive-shell .workspace :is(input,textarea,button,a){scroll-margin-block:64px 24px}
+.adaptive-shell .operational-heading{margin-bottom:12px}
 @media(max-width:767px){
  body:has(.adaptive-shell){overflow:hidden}
  .adaptive-shell{position:fixed;inset:0;bottom:var(--keyboard-inset,0px);min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--background,#faf9f5);isolation:isolate}
- .mobile-app-header{display:flex;align-items:center;gap:14px;height:calc(68px + env(safe-area-inset-top,0px));min-height:0;padding:calc(9px + env(safe-area-inset-top,0px)) max(14px,env(safe-area-inset-right,0px)) 9px max(14px,env(safe-area-inset-left,0px));background:linear-gradient(115deg,#103e2d,#0a3025);border-bottom:1px solid #c5ab7266;color:#fff9e8;box-shadow:0 2px 12px #103c2c12;z-index:30}
- .mobile-identity{display:flex;gap:8px;align-items:center;min-height:44px;flex-shrink:0;font:23px/1 Georgia,serif;color:#fff9e8}
- .mobile-identity small{display:block;margin-top:5px;font:7px/1.2 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#ddca98}
- .mobile-chef{display:grid;place-items:center;width:36px;height:40px;color:#dec58c;border:1px solid #dec58c66;border-radius:11px}
- .mobile-page-context{min-width:0;margin-left:auto;padding-left:12px;border-left:1px solid #ffffff25;text-align:right}
- .mobile-page-context p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:13px;font-weight:600;line-height:1.25;color:#fff9e8}
- .mobile-page-context small{display:block;margin-top:4px;font-size:10px;line-height:1.3;color:#d1d9c8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .shell-content{min-height:0;overflow-y:auto;overflow-x:clip;overscroll-behavior-y:contain;scroll-padding-block:64px 24px;-webkit-overflow-scrolling:touch}
  .adaptive-shell .workspace{padding:14px max(14px,env(safe-area-inset-right,0px)) 24px max(14px,env(safe-area-inset-left,0px));min-height:100%}
  .adaptive-shell .workspace :is(input,textarea,button,a){scroll-margin-block:64px 24px}
  .mobile-bottom{position:relative;inset:auto;z-index:30;flex-shrink:0}
- .adaptive-shell [data-shell-heading]{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}
- .adaptive-shell .eyebrow:has(+[data-shell-heading]){display:none}
  .adaptive-shell .operational-heading{gap:0;margin-bottom:12px}
  .adaptive-shell .operational-heading .week-toolbar{width:100%;padding:10px 12px}
  .adaptive-shell .operational-heading .week-toolbar p{font-size:12px}
- .adaptive-shell .recipe-heading-identity:has([data-shell-heading]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
- .adaptive-shell .recipe-mobile-heading,.adaptive-shell .recipe-mobile-heading.is-compact{top:0;padding:6px 0;gap:0;margin-bottom:12px;background:var(--background,#faf9f5)}
  .adaptive-shell .recipe-heading-actions{width:100%;min-height:44px}
- .adaptive-shell .recipe-library #recipe-library-filters{scroll-margin-top:60px}
  .adaptive-shell .recipe-identity-copy:has([data-shell-heading]) .eyebrow{display:block}
  .adaptive-shell .report-heading{padding-top:12px}
  .adaptive-shell .navigation-sheet{max-height:calc(100dvh - 20px);max-height:calc(100% - 20px)}
 }
-@media(max-width:359px){.mobile-app-header{gap:8px}.mobile-identity{font-size:20px}.mobile-chef{width:30px}.mobile-page-context{padding-left:8px}.mobile-page-context p{font-size:12px}}
-@media print{.mobile-app-header{display:none!important}.adaptive-shell{position:static;display:block;overflow:visible}.shell-content{overflow:visible}}
+@media(max-width:359px){.application-header{gap:8px}.mobile-identity{font-size:20px}.mobile-chef{width:30px}.application-page-context{padding-left:8px}.application-page-context p{font-size:12px}}
+@media print{.application-header{display:none!important}.adaptive-shell{position:static;display:block;overflow:visible}.shell-content{overflow:visible}}
 
 @media print{body:has(.adaptive-shell){overflow:visible!important}}
+
+@media(min-width:768px){
+ .application-header{height:68px;padding:10px 25px;gap:20px}
+ .application-header .mobile-identity{display:none}
+ .application-page-context{margin-left:0;padding-left:0;border:0;text-align:left;flex:1}
+ .application-page-context p{font:22px/1.2 Georgia,serif;letter-spacing:-.3px;-webkit-line-clamp:1}
+ .application-page-context small{font-size:11px}
+ .application-header-actions{display:flex;gap:16px;align-items:center;flex-shrink:0}
+ .application-header-actions .workspace-control{margin:0;width:190px}
+ .application-header-actions .workspace-control label{display:none}
+ .application-header-actions .workspace-select{min-height:40px;padding:8px 10px;color:#fff7e8;font-size:12px}
+ .header-account{position:relative}
+ .header-account>summary{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #d0b57366;border-radius:10px;cursor:pointer;font-size:12px;list-style:none;color:#f8edcd}
+ .header-account>summary::-webkit-details-marker{display:none}
+ .header-account>summary:hover{background:#ffffff0d}
+ .header-account>summary:focus-visible{outline:2px solid #d2ac55;outline-offset:3px}
+ .header-account-panel{position:absolute;top:calc(100% + 12px);right:0;min-width:280px;max-width:calc(100vw - 100px);padding:12px;background:#103c2d;border:1px solid #c5ab72;border-radius:12px;box-shadow:0 12px 30px #123b2b33;z-index:60}
+ .header-account-panel .sidebar-profile{margin:0;border:0;padding:4px}
+ .adaptive-shell .recipe-heading-actions{justify-content:flex-end;width:100%}
+ .adaptive-shell .recipe-mobile-heading{min-height:56px}
+ .adaptive-shell .operational-heading{justify-content:flex-end}
+}
+@media(min-width:768px) and (max-width:1023px){
+ .application-header{padding-inline:18px;gap:12px}
+ .application-page-context p{font-size:18px}
+ .application-header-actions{gap:10px}
+ .application-header-actions .workspace-control{width:150px}
+ .header-account>summary{padding:8px 10px}
+ .header-account>summary>span{display:none}
+}
+@media print{
+ body:has(.adaptive-shell){overflow:visible!important}
+ .application-header{display:none!important}
+ .adaptive-shell{position:static;display:block;overflow:visible}
+ .shell-content{overflow:visible;min-height:0}
+ .adaptive-shell [data-shell-heading],.adaptive-shell .recipe-heading-identity:has([data-shell-heading]){position:static!important;width:auto!important;height:auto!important;margin:0!important;clip-path:none!important;white-space:normal!important;overflow:visible!important}
+ .adaptive-shell .eyebrow:has(+[data-shell-heading]){display:block}
+}

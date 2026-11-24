@@ -32,3 +32,8 @@
 .loadingTitle,.loadingCard,.loadingPanel{background:var(--tint);border:1px solid var(--edge);border-radius:14px;animation:loading 1.6s ease-in-out infinite alternate;}.loadingTitle{width:55%;height:34px;margin:30px 0;}.loadingCard{height:142px;}.loadingPanel{height:360px;}@keyframes loading{from{opacity:.5}to{opacity:1}}
 .filters>select{width:auto;min-width:160px;flex:0 1 auto;}.filter select{width:auto;}.panelHeading>select{width:auto;min-width:140px;flex-shrink:0;}.panelHeading>.search{max-width:310px;}.table td.subtle{display:table-cell;}
 @media(max-width:640px){.filters>select{min-width:0;flex:1;}.filter select{width:100%;}.panelHeading>.search{max-width:none;}}
+
+/* The shared protected header owns page identity and account controls. Keep the
+   management-specific search, notifications and theme controls as a compact toolbar. */
+:global(.adaptive-shell) .topbar{min-height:48px;margin-bottom:14px;border:0;justify-content:flex-end;}
+:global(.adaptive-shell) .topbar .breadcrumb,:global(.adaptive-shell) .topbar .profile{display:none;}

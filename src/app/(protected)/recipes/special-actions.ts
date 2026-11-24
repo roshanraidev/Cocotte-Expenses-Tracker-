@@ -29,19 +29,20 @@ export async function saveWeeklySpecial(form: FormData) {
     } else {
       await tx.$executeRaw(Prisma.sql`INSERT INTO "WeeklySpecial"(id,"restaurantId","recipeId",status,"startDate","endDate","updatedAt") VALUES(${randomUUID()},${user.restaurantId},${recipeId},${status}::"WeeklySpecialStatus",${startDate}::date,${endDate}::date,NOW())`);
     }
+    if(status==='PUBLISHED')await tx.$executeRaw(Prisma.sql`INSERT INTO "RecipeFeatureSettings"("restaurantId","weeklySpecialsEnabled") VALUES(${user.restaurantId},true) ON CONFLICT("restaurantId") DO UPDATE SET "weeklySpecialsEnabled"=true`);
   });
   revalidatePath('/recipes', 'layout');
 }
 export async function removeWeeklySpecial(form: FormData) {
   const user = await requirePermission('recipes.edit');
   const id = String(form.get('id') ?? '');
-  await db().$executeRaw(Prisma.sql`DELETE FROM "WeeklySpecial" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);
+  await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`DELETE FROM "WeeklySpecial" WHERE id=${id} AND "restaurantId"=${user.restaurantId}`);});
   revalidatePath('/recipes', 'layout');
 }
 export async function setWeeklySpecialsEnabled(form: FormData) {
   const user = await requirePermission('recipes.edit');
   const enabled = form.get('enabled') === 'on';
-  await db().$executeRaw(Prisma.sql`INSERT INTO "RecipeFeatureSettings"("restaurantId","weeklySpecialsEnabled") VALUES(${user.restaurantId},${enabled}) ON CONFLICT("restaurantId") DO UPDATE SET "weeklySpecialsEnabled"=EXCLUDED."weeklySpecialsEnabled"`);
+  await db().$transaction(async tx=>{await lockRecipeGraph(tx,user.restaurantId);await tx.$executeRaw(Prisma.sql`INSERT INTO "RecipeFeatureSettings"("restaurantId","weeklySpecialsEnabled") VALUES(${user.restaurantId},${enabled}) ON CONFLICT("restaurantId") DO UPDATE SET "weeklySpecialsEnabled"=EXCLUDED."weeklySpecialsEnabled"`);});
   revalidatePath('/recipes', 'layout');
 }
 export async function specialFormAction(_: {error: string}, form: FormData): Promise<{error: string}> {

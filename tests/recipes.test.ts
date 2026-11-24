@@ -20,6 +20,7 @@ vi.mock('@/lib/db', () => ({ db: () => ({
   session: { findUnique: mocks.session },
   restaurantRecipeLibrary:{findUnique:async()=>null},
   userRecipeLibrary:{findFirst:async()=>null},
+  accessRolePolicy:{findUnique:async()=>null},
 }) }));
 import { saveRecipe } from '@/app/(protected)/recipes/actions';
 import { recipe } from '@/lib/recipes';
@@ -143,7 +144,10 @@ it('uploads, keeps, replaces and removes stored photos with fresh URLs and uncac
   expect(stored.rows[0]).toEqual({ imageBytes: null, imageMime: null });
   expect((await image()).status).toBe(404);
   expect((await image()).headers.get('Cache-Control')).toBe('private, no-store');
-  expect(renderToStaticMarkup(await RecipePage({ params: Promise.resolve({ id }) }))).toContain('No image');
+  const withoutPhoto = renderToStaticMarkup(await RecipePage({ params: Promise.resolve({ id }) }));
+  expect(withoutPhoto).toContain('recipe-identity-no-photo');
+  expect(withoutPhoto).not.toContain('recipe-identity-photo');
+  expect(withoutPhoto).not.toContain('No image');
 });
 
 it.each([
@@ -250,15 +254,14 @@ it('supports many simultaneous published specials, drafts, unpublishing and feat
   const create = (recipeId: string, status = 'PUBLISHED') => { const data = new FormData(); data.set('recipeId', recipeId); data.set('status', status); return data; };
   for (let i = 0; i < 15; i++) await saveWeeklySpecial(create(ids[i % 2]));
   await saveWeeklySpecial(create(draftId, 'DRAFT'));
-  expect((await weeklySpecials('restaurant')).specials).toHaveLength(0);
+  expect((await weeklySpecials('restaurant')).specials).toHaveLength(15); // Publishing activates the feature atomically.
   const enabled = new FormData(); enabled.set('enabled', 'on');
   await setWeeklySpecialsEnabled(enabled);
   expect((await weeklySpecials('restaurant')).specials).toHaveLength(15);
-  const staff = renderToStaticMarkup(await WeeklySpecials({ restaurantId: 'restaurant', admin: false }));
-  expect((staff.match(/class="recipe-card"/g) ?? [])).toHaveLength(15);
-  expect(staff).not.toContain('Draft dish');
-  expect(staff).not.toContain('Publish');
-  expect(staff).not.toContain('Manage Specials');
+  const {publishedSpecialCards}=await import('@/lib/weekly-specials-service');const {db}=await import('@/lib/db');
+  const snapshot=await publishedSpecialCards(db(),'restaurant');expect(snapshot).toHaveLength(15);
+  expect(snapshot.some(s=>s.name==='Draft dish')).toBe(false);
+  expect(await WeeklySpecials({restaurantId:'restaurant',admin:false})).toBeNull();
   const management = renderToStaticMarkup(await WeeklySpecials({ restaurantId: 'restaurant', admin: true }));
   expect(management).toContain('Save Draft'); expect(management).toContain('Unpublish');
   expect(management).toContain('Draft dish');
@@ -489,4 +492,34 @@ it('supports archive search/category/sorting and keeps archived management restr
  expect(html.indexOf('AA Archived entry')).toBeLessThan(html.indexOf('ZZ Archived entry'));expect(html).toContain('Restore Recipe');expect(html).toContain('Date archived');
  mocks.session.mockResolvedValue({user:{id:'chef',restaurantId:'restaurant',role:'CHEF',active:true},expiresAt:new Date(Date.now()+60000)});
  const chef=renderToStaticMarkup(await RecipesPage({searchParams:Promise.resolve({tab:'archived',q:'Archived entry'})}));expect(chef).not.toContain('Restore Recipe');expect(chef).not.toContain('AA Archived entry');
+});
+
+it('filters sidebar snapshots in SQL and updates publish/unpublish/remove without copying recipes',async()=>{
+ const {publishedSpecialCards}=await import('@/lib/weekly-specials-service'),{db}=await import('@/lib/db');
+ const {saveWeeklySpecial,removeWeeklySpecial}=await import('@/app/(protected)/recipes/special-actions');
+ const id=await save(form('Sidebar snapshot fixture','Original | 25 | g')),data=new FormData();data.set('recipeId',id);data.set('status','PUBLISHED');data.set('startDate','2026-11-01');data.set('endDate','2026-11-30');await saveWeeklySpecial(data);
+ const current=(await publishedSpecialCards(db(),'restaurant','2026-11-22')).find(item=>item.recipeId===id)!;expect(current.name).toBe('Sidebar snapshot fixture');expect(Object.keys(current).sort()).toEqual(['category','hasImage','id','imageVersion','name','recipeId']);
+ expect((await publishedSpecialCards(db(),'other','2026-11-22')).some(item=>item.recipeId===id)).toBe(false);
+ for(const day of ['2026-10-31','2026-12-01'])expect((await publishedSpecialCards(db(),'restaurant',day)).some(item=>item.recipeId===id)).toBe(false);
+ await pg.query('UPDATE "Recipe" SET visible=false WHERE id=$1',[id]);expect((await publishedSpecialCards(db(),'restaurant','2026-11-22')).some(item=>item.recipeId===id)).toBe(false);await pg.query('UPDATE "Recipe" SET visible=true WHERE id=$1',[id]);
+ data.set('id',current.id);data.set('status','DRAFT');await saveWeeklySpecial(data);expect((await publishedSpecialCards(db(),'restaurant','2026-11-22')).some(item=>item.id===current.id)).toBe(false);
+ data.set('status','PUBLISHED');await saveWeeklySpecial(data);await removeWeeklySpecial(data);expect((await publishedSpecialCards(db(),'restaurant','2026-11-22')).some(item=>item.id===current.id)).toBe(false);expect(await recipe('restaurant',id,true)).not.toBeNull();
+});
+it('keeps delegated recipe and specials management available to managers',async()=>{
+ const {saveWeeklySpecial,removeWeeklySpecial,setWeeklySpecialsEnabled}=await import('@/app/(protected)/recipes/special-actions');
+ const {weeklySpecials}=await import('@/lib/recipe-features');
+ mocks.session.mockResolvedValue({user:{id:'manager',restaurantId:'restaurant',role:'CHEF',active:true,accessRole:'MANAGER'},expiresAt:new Date(Date.now()+60000)});
+ const id=await save(form('Manager recipe','Ingredient | 1 | g'));
+ const details=renderToStaticMarkup(await RecipePage({params:Promise.resolve({id})}));
+ expect(details).toContain('EDIT RECIPE');
+ expect(details).toContain('Manager recipe');
+ const special=new FormData();special.set('recipeId',id);special.set('status','PUBLISHED');
+ await saveWeeklySpecial(special);
+ const published=(await weeklySpecials('restaurant')).specials.find(item=>item.recipeId===id);
+ expect(published).toBeDefined();
+ special.set('id',published!.id);
+ await removeWeeklySpecial(special);
+ expect((await weeklySpecials('restaurant')).specials.some(item=>item.recipeId===id)).toBe(false);
+ await setWeeklySpecialsEnabled(new FormData());
+ expect((await weeklySpecials('restaurant')).enabled).toBe(false);
 });

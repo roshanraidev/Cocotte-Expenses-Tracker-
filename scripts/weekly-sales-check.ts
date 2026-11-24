@@ -182,7 +182,10 @@ try{
  await page.reload();await expect(page.getByRole('button',{name:'Expand sidebar',exact:true})).toBeVisible();await expect(page.locator('[data-weekly-sales-overview]')).toBeVisible();await page.waitForTimeout(250);assert.equal(Math.round(await page.locator('.desktop-sidebar').evaluate(e=>e.getBoundingClientRect().width)),80);
  const recipeRail=page.locator('.desktop-sidebar a[href="/recipes"]');await recipeRail.focus();await expect(recipeRail.locator('.rail-tooltip')).toBeVisible();
  await page.screenshot({path:'/tmp/cocotte-navigation-desktop.png',fullPage:true});
- await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
+ await page.screenshot({path:'/tmp/cocotte-global-header-collapsed.png'});
+ await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();await page.waitForTimeout(250);
+ await page.goto(base+'/dashboard?week='+monday);await expect(page.locator('.application-page-context small')).toContainText('26 Oct');
+ await page.screenshot({path:'/tmp/cocotte-global-header-desktop.png'});
  const recipeType=await prisma.recipeType.create({data:{restaurantId:actor.restaurantId,name:'Navigation test preparations'}});
  await prisma.recipe.createMany({data:Array.from({length:32},(_,n)=>({restaurantId:actor.restaurantId,typeId:recipeType.id,name:'Test preparation '+String(n+1).padStart(2,'0'),ingredients:[]}))});
  for(const width of [375,390,412,768,1440]){
@@ -196,13 +199,13 @@ try{
    await expect(page.getByRole('dialog').getByRole('button',{name:'Sign out'})).toBeVisible();
    await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).not.toBeVisible();await expect(page.getByRole('button',{name:'More navigation'})).toBeFocused();
    await expect(page.locator('.recipe-grid .recipe-card')).toHaveCount(32);await expect(page.locator('.recipe-grid .recipe-card').first()).toBeVisible();
-   const scroller=page.locator('.shell-content'),top=page.locator('.mobile-app-header');await expect(top).toBeVisible();
+   const scroller=page.locator('.shell-content'),top=page.locator('.application-header');await expect(top).toBeVisible();
    const headerBefore=await top.boundingBox();await scroller.evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));
    await expect.poll(()=>scroller.evaluate(e=>e.scrollTop)).toBeGreaterThan(100);assert.equal(await page.evaluate(()=>scrollY),0);
    const bounds=await bottom.boundingBox(),headerAfter=await top.boundingBox(),contentBounds=await scroller.boundingBox();
    assert(bounds&&headerAfter&&contentBounds&&headerBefore);assert.equal(headerAfter.y,headerBefore.y);assert(contentBounds.y>=headerAfter.y+headerAfter.height-1);assert(contentBounds.y+contentBounds.height<=bounds.y+1);
    const sticky=page.locator('.recipe-mobile-heading');assert((await sticky.boundingBox())!.y>=headerAfter.y+headerAfter.height-1);await expect(sticky.getByRole('link',{name:'New Recipe',exact:true})).toBeVisible();
-   await expect(top.locator('.mobile-page-context p')).toHaveText('Recipe Library');
+   await expect(top.locator('.application-page-context p')).toHaveText('Recipe Library');
    await scroller.evaluate(e=>e.scrollTo({top:e.scrollHeight,behavior:'instant'}));
    assert((await page.locator('.recipe-library-specials').boundingBox())!.y<bounds.y);
    await scroller.evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));await page.waitForTimeout(220);
@@ -210,19 +213,44 @@ try{
    await page.getByRole('button',{name:'More navigation'}).click();
    await page.getByRole('dialog').getByRole('link',{name:'Weekly Planning',exact:true}).click();
    await expect(page).toHaveURL(/admin\/planning/);await expect(page.getByRole('dialog')).not.toBeVisible();
-  }else{await expect(page.locator('.desktop-sidebar')).toBeVisible();await expect(page.locator('.mobile-bottom')).not.toBeVisible();}
+  }else{
+   await expect(page.locator('.desktop-sidebar')).toBeVisible();await expect(page.locator('.mobile-bottom')).not.toBeVisible();
+   const header=page.locator('.application-header'),scroller=page.locator('.shell-content');await expect(header).toBeVisible();
+   const initial=await header.boundingBox(),rail=await page.locator('.desktop-sidebar').boundingBox();assert(initial&&rail&&initial.x>=rail.x+rail.width-1);
+   await expect(page.locator('.recipe-card').first()).toBeVisible();await scroller.evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));await expect.poll(()=>scroller.evaluate(e=>e.scrollTop)).toBeGreaterThan(100);
+   assert.equal((await header.boundingBox())!.y,initial.y);assert.equal(await page.evaluate(()=>scrollY),0);
+   assert((await page.locator('.recipe-mobile-heading').boundingBox())!.y>=initial.y+initial.height-1);
+   await page.getByLabel('Account menu',{exact:true}).click();await expect(page.locator('.header-account-panel')).toBeVisible();await expect(page.locator('.header-account-panel')).toContainText('Test Super User');await page.keyboard.press('Escape');await expect(page.locator('.header-account-panel')).not.toBeVisible();
+   await page.screenshot({path:'/tmp/cocotte-global-header-recipes-'+width+'.png'});
+  }
  }
+ // The shared header must remain available across every protected module.
+ await page.setViewportSize({width:1440,height:1000});
+ for(const route of ['/dashboard','/recipes','/reports','/orders','/admin/planning','/suppliers','/admin','/admin/users','/stock','/packaging']){
+  await page.goto(base+route);await expect(page.locator('.application-header')).toBeVisible();await expect(page.locator('main h1').first()).toBeAttached();
+  await expect.poll(()=>page.locator('.application-page-context p').innerText()).not.toBe('Cocotte');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(route==='/dashboard'){
+   await page.getByText('Choose date',{exact:true}).click();const picker=page.getByLabel('Choose any date in the week');await expect(picker).toBeVisible();const box=await picker.boundingBox();assert(box&&box.y>=68);assert(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.id==='week-picker',{x:box.x+box.width/2,y:box.y+box.height/2}));
+   await page.getByText('Choose date',{exact:true}).click();
+  }
+  if(route==='/orders'){
+   await page.getByRole('button',{name:'Sync Zonal Deliveries',exact:true}).click();const modal=page.getByRole('dialog',{name:'Sync Zonal Deliveries',exact:true});await expect(modal).toBeVisible();await expect(modal.getByLabel('From',{exact:true})).toBeVisible();
+   const box=await modal.boundingBox();assert(box&&await page.evaluate(({x,y})=>!!document.elementFromPoint(x,y)?.closest('dialog[open]'),{x:box.x+box.width/2,y:box.y+30}));await modal.getByRole('button',{name:'Close delivery sync'}).click();
+  }
+ }
+ console.log('PASS global header: desktop/tablet alignment and scrolling, ten protected modules, account keyboard handling, date picker visibility and top-layer delivery modal; no Zonal requests.');
  // Touch-device contexts use the same synthetic account; no real device or purchase changes.
  for(const deviceName of ['iPhone 13','Pixel 7']){
   const touchContext=await browser.newContext({...devices[deviceName],deviceScaleFactor:1});await touchContext.addCookies(await page.context().cookies());const touchPage=await touchContext.newPage();
-  await touchPage.goto(base+'/dashboard?week='+monday);await expect(touchPage.locator('[data-weekly-sales-overview]')).toBeVisible();await expect(touchPage.locator('.mobile-page-context small')).toContainText('26 Oct');
+  await touchPage.goto(base+'/dashboard?week='+monday);await expect(touchPage.locator('[data-weekly-sales-overview]')).toBeVisible();await expect(touchPage.locator('.application-page-context small')).toContainText('26 Oct');
   await touchPage.screenshot({path:'/tmp/cocotte-mobile-'+(deviceName==='iPhone 13'?'iphone':'android')+'-dashboard.png'});
   await touchPage.goto(base+'/recipes');await expect(touchPage.locator('.recipe-card')).toHaveCount(32);await expect(touchPage.locator('.recipe-card').first()).toBeVisible();
   await touchPage.locator('.shell-content').evaluate(e=>e.scrollTo({top:500,behavior:'instant'}));await touchPage.waitForTimeout(250);
   await touchPage.screenshot({path:'/tmp/cocotte-mobile-'+(deviceName==='iPhone 13'?'iphone':'android')+'-recipes.png'});
   await touchPage.getByRole('button',{name:'Search and filter recipes'}).click();await expect(touchPage.getByRole('textbox',{name:'Search recipes'})).toBeFocused();
   await touchPage.setViewportSize({width:390,height:460});
-  await expect.poll(async()=>{const input=await touchPage.getByRole('textbox',{name:'Search recipes'}).boundingBox(),bar=await touchPage.locator('.mobile-bottom').boundingBox(),header=await touchPage.locator('.mobile-app-header').boundingBox();return !!(input&&bar&&header&&input.y>=header.y+header.height&&input.y+input.height<=bar.y);}).toBe(true);
+  await expect.poll(async()=>{const input=await touchPage.getByRole('textbox',{name:'Search recipes'}).boundingBox(),bar=await touchPage.locator('.mobile-bottom').boundingBox(),header=await touchPage.locator('.application-header').boundingBox();return !!(input&&bar&&header&&input.y>=header.y+header.height&&input.y+input.height<=bar.y);}).toBe(true);
   await touchPage.getByRole('textbox',{name:'Search recipes'}).blur();await touchPage.setViewportSize({width:390,height:844});
   await touchPage.getByRole('button',{name:'More navigation'}).click();await touchPage.screenshot({path:'/tmp/cocotte-mobile-more.png'});await touchPage.keyboard.press('Escape');
   await touchContext.close();

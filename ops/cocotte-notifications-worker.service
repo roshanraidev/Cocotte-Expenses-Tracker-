@@ -1,0 +1,22 @@
+# Optional template only. Do not enable before the reviewed migration and secrets.
+[Unit]
+Description=Cocotte kitchen Web Push delivery worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cocotte
+WorkingDirectory=/srv/cocotte
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/cocotte/notifications.env
+ExecStart=/usr/bin/npm run worker:notifications
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

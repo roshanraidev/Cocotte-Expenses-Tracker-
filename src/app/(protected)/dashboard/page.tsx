@@ -6,20 +6,18 @@ import {permittedHome} from '@/lib/navigation';
 import {redirect} from 'next/navigation';
 import {requireUser} from '@/lib/auth';
 import {londonToday,mondayOf} from '@/lib/dates';
-import {selectedWeek} from '@/lib/week-data';
 import {dashboardWeek} from '@/lib/zonal/weekly-sales-data';
 import {readWeeklySyncStatus} from '@/lib/zonal/weekly-sync-status';
 import {WeeklySalesOverview} from '@/components/weekly-sales-overview';
 import {WeeklySalesSync} from '@/components/weekly-sales-sync';
 import {formatGBP} from '@/lib/money';
 import {percentLabel} from '@/lib/targets';
-import {WeekNavigation} from '@/components/week-navigation';
 import {MoneyValue} from '@/components/money-value';
 import {LiveRefresh} from '@/components/live-refresh';
 import './dashboard.css';
-export default async function Dashboard({searchParams}:{searchParams:Promise<{week?:string|string[]}>}){
+export default async function Dashboard(){
  const user=await requireUser();if(!can(user,'dashboard.view'))redirect(permittedHome(user));
- const today=londonToday(),monday=selectedWeek((await searchParams).week,today);
+ const today=londonToday(),monday=mondayOf(today);
  const {financial:data,overview}=await dashboardWeek(db(),user.restaurantId,monday,today);
  const {finance,target,sales}=data,available=finance?.allowance;
  const canSync=user.role==='SUPER_USER'&&can(user,'sales.view');
@@ -33,7 +31,7 @@ export default async function Dashboard({searchParams}:{searchParams:Promise<{we
   ...(user.role==='SUPER_USER'&&can(user,'settings.view')?[{href:`/admin/planning?week=${monday}`,label:'Weekly planning',icon:CalendarDays}]:[])
  ];
  return <div className="operational-dashboard"><LiveRefresh/>
-  <header className="operational-heading"><div><p className="eyebrow">Cocotte · Food purchasing</p><h1 className="page-title">Kitchen overview</h1></div><WeekNavigation monday={monday} path="/dashboard" current={mondayOf(today)}/></header>
+  <header className="operational-heading"><div><p className="eyebrow">Cocotte · Food purchasing</p><h1 className="page-title">Kitchen overview</h1></div></header>
   <section className="operational-budget" aria-labelledby="allowance-heading">
    <div className="operational-budget-focus"><h2 className="operational-budget-label" id="allowance-heading">Remaining Food Purchasing Budget</h2><div className="operational-budget-value">{available==null?"Set up this week's plan":<MoneyValue pence={available.toString()}/>}</div><p className="operational-budget-caption">Projected allowance · confirmed purchases deducted</p>
     {available!=null&&<p className="operational-budget-health">{available>=0n?<><Check size={15}/>Within projected budget</>:<><TriangleAlert size={15}/>Over budget by {formatGBP(-available)}</>}</p>}

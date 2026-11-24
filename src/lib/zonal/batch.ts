@@ -1,4 +1,5 @@
 import 'server-only';
+import { enqueueAgentReport } from './agent/outbox';
 import {reportErrorMessage} from './report-errors';
 import { salesIdentity } from './sales-identity';
 import type { PrismaClient } from '@/generated/prisma/client';
@@ -63,6 +64,7 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
  try{
   const credentials=decryptCredentials(actor.restaurantId,connection.encryptedCredentials);
   final=await runner(actor.restaurantId,credentials,batch.days.map(day=>dateKey(day.date)),async(date,result)=>{
+   const capturedAt=new Date();
    await prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id = ${actor.restaurantId} FOR UPDATE`;
     const active=await tx.zonalSyncBatch.findFirst({where:{id,restaurantId:actor.restaurantId,status:'RUNNING'}});
@@ -77,6 +79,7 @@ export async function runBatch(prisma:PrismaClient,actor:SalesActor,id:string,ru
     try{report=validateReport(result.report,batch.branch,date);}catch{await tx.zonalSyncDay.update({where:{id:day.id},data:{status:'FAILED',attempted:true,errorCode:'REPORT_INVALID',checkedAt:new Date()}});return;}
     const restaurant=await tx.restaurant.findUniqueOrThrow({where:{id:actor.restaurantId}});
     if(restaurant.currency!=='GBP')throw new ZonalError('Restaurant currency must be GBP.');
+    await enqueueAgentReport(tx,actor.restaurantId,report,capturedAt);
     const sale=await tx.dailySales.findUnique({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:day.date}}});
     const prior=await tx.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:day.date,status:'APPROVED'},orderBy:{completedAt:'desc'}});
     const hash=fingerprint(report);

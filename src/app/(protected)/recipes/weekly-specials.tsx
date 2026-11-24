@@ -1,7 +1,6 @@
 import { londonToday } from '@/lib/dates';
 import { weeklySpecials, type SpecialRow } from '@/lib/recipe-features';
 import { recipes, type RecipeRow } from '@/lib/recipes';
-import RecipeCard from './recipe-card';
 import RecipeActionForm from './action-form';
 import ConfirmDelete from './confirm-delete';
 import { removeWeeklySpecial, setWeeklySpecialsEnabled, specialFormAction } from './special-actions';
@@ -20,17 +19,16 @@ function SpecialFields({ choices, special }: { choices: RecipeRow[]; special?: S
   </>;
 }
 export default async function WeeklySpecials({ restaurantId, admin }: { restaurantId: string; admin: boolean }) {
+  if(!admin)return null;
   const today = londonToday();
   const { enabled, specials } = await weeklySpecials(restaurantId, admin, today);
   if (!admin && !specials.length) return null;
   const choices = await recipes(restaurantId, admin);
   const active = specials.filter(s => enabled && s.status === 'PUBLISHED' && s.recipeVisible && (!s.startDate || s.startDate <= today) && (!s.endDate || s.endDate >= today));
-  const lookup = new Map(choices.map(r => [r.id, r]));
   return <section className="mb-5">
-    {!!active.length && <><h2 className="section-title">Weekly Specials</h2><div className="recipe-grid mb-4">{active.map(s => lookup.has(s.recipeId) && <RecipeCard key={s.id} recipe={lookup.get(s.recipeId)!}/>)}</div></>}
     {admin && <details className="card">
       <summary className="cursor-pointer font-semibold">Add Weekly Special / Manage Specials</summary>
-      <form action={setWeeklySpecialsEnabled} className="flex flex-wrap items-center gap-3 mt-4 mb-4">
+      <form key={String(enabled)} action={setWeeklySpecialsEnabled} className="flex flex-wrap items-center gap-3 mt-4 mb-4">
         <label className="recipe-check"><input type="checkbox" name="enabled" defaultChecked={enabled}/>Enable Weekly Specials for this restaurant</label><button className="btn btn-secondary">Save setting</button>
       </form>
       <p className="page-description mb-4">Publish any number of existing recipes. Dates include the whole selected day in Europe/London. Leave both blank to keep a published special active until you unpublish it. Disabling this feature keeps your drafts and published specials.</p>
@@ -40,7 +38,7 @@ export default async function WeeklySpecials({ restaurantId, admin }: { restaura
         <summary className="cursor-pointer text-sm font-semibold">{s.recipeName} · {s.status === 'DRAFT' ? 'Draft' : active.some(a => a.id === s.id) ? 'Published · Active' : 'Published · Not currently active'} · Edit</summary>
         <div className="mt-3">
           {!s.recipeVisible && <p className="page-description mb-3">This recipe is archived, or the recipe/category is hidden. Restore archived recipes before publishing. Existing special records are preserved.</p>}
-          <RecipeActionForm action={specialFormAction}><SpecialFields choices={choices} special={s}/></RecipeActionForm>
+          <RecipeActionForm key={JSON.stringify([s.id,s.recipeId,s.status,s.startDate,s.endDate])} action={specialFormAction}><SpecialFields choices={choices} special={s}/></RecipeActionForm>
           <form action={removeWeeklySpecial} className="mt-3"><input type="hidden" name="id" value={s.id}/><ConfirmDelete className="text-xs underline" message={'Remove special “'+s.recipeName+'”? Its recipe will be kept.'} label="Remove special"/></form>
         </div>
       </details>)}</div>}
