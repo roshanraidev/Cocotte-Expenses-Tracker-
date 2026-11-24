@@ -1,0 +1,12 @@
+.recipe-preference-link{min-height:44px;padding:8px;text-decoration:underline;text-underline-offset:3px;color:#34533e;font-size:12px;cursor:pointer}
+.recipe-sortable{position:relative;min-width:0;height:100%}.recipe-sortable>.recipe-card{height:100%}
+.recipe-sortable.is-dragging{opacity:.86;filter:drop-shadow(0 10px 12px #163b2e22);outline:2px solid #af9658;border-radius:17px}
+.recipe-sortable.is-drop-target{outline:2px dashed #af9658;outline-offset:3px;border-radius:17px}
+.recipe-sortable:focus-visible{outline:2px solid #af9658;outline-offset:3px;border-radius:17px}
+.recipe-sortable .recipe-card-link{cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.recipe-sortable.is-dragging .recipe-card-link{cursor:grabbing}
+.recipe-sortable[aria-disabled=true] .recipe-card-link{cursor:wait}
+.recipe-order-status,.recipe-filter-save{font-size:11px;color:#526252;margin:4px 0}.recipe-order-status:empty{display:none}.recipe-filter-save{min-height:18px}
+.recipe-preference-error{padding:12px;border:1px solid #b77962;border-radius:9px;background:#fff6ed;color:#783d26;font-size:13px;margin:8px 0}.recipe-preference-error button{text-decoration:underline;min-height:44px;padding:6px}
+.recipe-filter-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px}
+@media(prefers-reduced-motion:reduce){.recipe-sortable{transition:none!important}}

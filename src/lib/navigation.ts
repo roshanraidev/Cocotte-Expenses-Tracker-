@@ -1,11 +1,12 @@
 import {can,type Permission,type PermissionActor} from './permissions';
-export type NavigationItem={href:string;label:string;icon:'dashboard'|'receipt'|'truck'|'reports'|'settings'|'store'|'planning'|'recipes'|'users'|'inventory';group:'main'|'management'|'shared'};
+export type NavigationItem={href:string;label:string;icon:'dashboard'|'receipt'|'truck'|'reports'|'settings'|'store'|'planning'|'recipes'|'users'|'inventory'|'notifications';group:'main'|'management'|'shared'};
 type Section=NavigationItem&{permission:Permission;superUserOnly?:boolean;dashboardAlternative?:boolean};
 const food:Section[]=[
  {href:'/dashboard',label:'Dashboard',icon:'dashboard',group:'main',permission:'dashboard.view'},
  {href:'/orders',label:'Supplier Purchases',icon:'truck',group:'main',permission:'purchasing.view'},
  {href:'/reports',label:'Reports',icon:'reports',group:'main',permission:'reports.view'},
  {href:'/recipes',label:'Recipes',icon:'recipes',group:'main',permission:'recipes.view'},
+ {href:'/notifications',label:'Notifications',icon:'notifications',group:'main',permission:'recipes.view'},
  // These routes otherwise have no sidebar entry; expose them when the full Dashboard is unavailable.
  {href:'/sales',label:'Daily Sales',icon:'receipt',group:'main',permission:'sales.view',dashboardAlternative:true},
  {href:'/stock',label:'Inventory',icon:'inventory',group:'main',permission:'inventory.view',dashboardAlternative:true},
@@ -31,7 +32,7 @@ export function accessibleWorkspaces(actor:PermissionActor):AccessibleWorkspace[
 }
 export function navigationItems(actor:PermissionActor,path=''):NavigationItem[]{
  if(path.startsWith('/packaging')&&accessibleWorkspaces(actor).some(w=>w.id==='packaging')){
-  const shared=accessible(actor,food).filter(s=>['/recipes','/admin/planning','/admin','/admin/users','/sales'].includes(s.href)).map(s=>({...s,group:'shared' as const}));
+  const shared=accessible(actor,food).filter(s=>['/recipes','/notifications','/admin/planning','/admin','/admin/users','/sales'].includes(s.href)).map(s=>({...s,group:'shared' as const}));
   return [...accessible(actor,packaging),...shared];
  }
  return accessible(actor,food);

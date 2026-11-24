@@ -264,3 +264,7 @@ totals. It does not modify the restaurant database or access Zonal.
 **Sync Weekly Net Sales** retains the selected-week and recent correction pipeline. **Sync Zonal Sales** offers bounded daily incremental jobs with explicit review/approval and no dependency on historical-discovery metadata. See [daily sales jobs](zonal-sales-jobs.md).
 
 The one-time historical backfill and its bulk-approval/start/resume/retry actions are removed. Stored historical jobs, previews, audit history and approved financial records remain untouched. Approved-data sales trends and year comparisons remain available; these charts do not fetch reports from Zonal.
+
+## Optional Mac-to-AWS report delivery
+
+The opt-in, upload-only agent stages validated Mac reports on AWS without direct production database access or automatic approval. Setup, migration review, Keychain credential provisioning, retries and expiry rules: [Mac-to-AWS sales transfer](zonal-agent-transfer.md). It is disabled until configured and requires a separately approved deployment and additive migration.

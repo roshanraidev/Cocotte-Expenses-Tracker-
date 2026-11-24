@@ -1,0 +1,73 @@
+# Recipe Library personalisation
+
+The base personalisation feature is deployed. The latest whole-card gesture update is local and has not yet been committed or deployed. It does not modify recipe content, photographs, costing, permissions or financial data.
+
+## Using the library
+
+- Active recipe cards are draggable directly: hold the left mouse button and move at least 6 pixels (no pause is required), or long-press on touch for 350 ms before moving. For keyboard use, focus the recipe group and press Space, arrow keys, then Space. A completed drop saves automatically to PostgreSQL; there is no ordering mode, Save/Cancel toolbar or personal/default ordering selector.
+- Inline drops save only the signed-in user's personal arrangement, including when the user is a Super User. Existing restaurant defaults are retained as the fallback for users without a personal arrangement; dragging never changes colleagues' arrangements.
+- Search/category filters remain active. Reordering replaces only the visible recipes' slots in the full ordered collection. Non-matching recipes retain their positions and are never omitted from the saved order.
+- Normal recipe links and edit/archive actions remain available. Quick clicks open recipes; short swipes scroll. The existing three-dot menu and its controls are excluded from drag activation. Native link/image dragging and touch previews are suppressed only where needed to support the card gesture.
+- Save failures retain the arrangement and show Retry/Reload feedback. Overlapping drops are blocked while saving. Navigation/filter changes wait for pending order saves; unsaved failures are not silently discarded.
+- Category, search, active/archive tab and archive sorting remain stored per user. Search waits 500 ms of inactivity. Nothing is stored in browser local storage.
+- Archived recipes keep their existing table, sorting and restore workflow, without drag handles. No schema change was required for inline autosaving.
+
+## Storage and concurrency
+
+Reviewed migration: `prisma/migrations/20261121000100_recipe_library_preferences/migration.sql`.
+
+It only creates `RestaurantRecipeLibrary`, `UserRecipeLibrary`, their indexes/FKs, and a redundant-but-required composite unique index on existing User ID/restaurant ID. Existing primary-key uniqueness already guarantees this index can be created without merging users. No UPDATE, DELETE, DROP, seed or data rewrite occurs.
+
+One default row per restaurant; one personal/filter row per user. Composite user/restaurant ownership is enforced by a foreign key. No workspace dimension is added because the existing Recipe Library is restaurant-wide and shared across purchasing workspaces.
+
+Shared ordering changes use the existing restaurant recipe-graph lock, serializing with recipe creation/edit/archive. User preference writes use a transaction-scoped advisory lock. Separate order/filter revision numbers reject stale writes, including concurrent first saves. Reset increments the order revision rather than deleting concurrency history. Order changes and resets are audited.
+
+Saving an order requires exactly the complete authorized active collection, with unique, restaurant-owned IDs. A concurrent collection change requires reloading rather than silently accepting a partial list. Saved references to archived/hidden recipes are retained as a tail for restoration; deleted references are ignored when displaying. New recipes follow existing stable ordering after ranked recipes. Restaurant defaults never replace personal overrides.
+
+## Migration and local verification
+
+The initial implementation left all existing databases unchanged. On 21 November 2026, the reviewed `20261121000100_recipe_library_preferences` migration was applied to the verified local Mac database (`127.0.0.1:5432/restaurant_cost_tracker`) after a verified full backup. A scoped Prisma migration catalog excluded the unrelated pending Mac-to-AWS migration `20261120000100_zonal_agent_transfer`, which remains pending. AWS production was not accessed or migrated. Do not blindly apply all pending migrations to production; review and release them with their corresponding code.
+
+Before applying the new migration to an existing database, back it up and inspect `npx prisma migrate status`. After the pending migration set has been explicitly reviewed for that environment, use the project's normal Prisma migration workflow. Never reset or seed. Until the preference tables exist, the library keeps its existing GET search/category/archive controls and shows a setup notice instead of crashing.
+
+To test the complete feature without changing any existing database:
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run build:production
+node --conditions=react-server --import tsx scripts/recipe-personalisation-check.ts
+```
+
+The browser check requires local PostgreSQL CLI tools (`initdb`, `pg_ctl`) and installed Playwright Chromium. It starts an isolated temporary database on 51949 and a local production server on 3185, applies migrations only to that temporary database, creates synthetic users/recipes, and removes it when finished. No Zonal login occurs. It verifies concurrency, authorization, ownership, ordering reset, real keyboard/touch interaction, saved filters after session replacement, detail navigation, archive filtering and unchanged recipe content. Review PNGs are saved under `/private/tmp/cocotte-recipes-personalisation-review`.
+
+For manual local testing: run `npm run dev`, sign in and open `/recipes`. Click and hold a card (or long-press on mobile), move it to another position, wait for the automatic save and refresh. Select a category and drag within it, then clear the category to confirm other recipes retained their positions. Sign in with another staff account to verify independent arrangements. Search/category persistence and archive/restore remain unchanged.
+
+Dependency check: npm audit reports three existing high-severity findings in the Prisma CLI/config dependency chain (`prisma`, `@prisma/config`, `effect`). The added dnd-kit dependencies are not implicated. No forced or unrelated dependency upgrades were made.
+
+## Files changed for this feature
+
+- `src/app/(protected)/recipes/page.tsx`
+- `src/app/(protected)/recipes/library-filters.tsx` (new)
+- `src/app/(protected)/recipes/library-order.tsx` (new)
+- `src/app/(protected)/recipes/preference-actions.ts` (new)
+- `src/app/(protected)/recipes/personalisation.css` (new)
+- `src/lib/recipe-library-preferences.ts` (new)
+- `src/lib/recipe-library-service.ts` (new)
+- `prisma/schema.prisma` (additive changes alongside preserved existing work)
+- `prisma/migrations/20261121000100_recipe_library_preferences/migration.sql` (new)
+- `package.json`, `package-lock.json` (dnd-kit dependencies; existing script changes preserved)
+- `tests/recipe-library.test.ts` (new)
+- `tests/recipes.test.ts` (existing page-test router/preference fixtures updated)
+- `scripts/recipe-personalisation-check.ts` (new, disposable database/browser regression)
+- `docs/recipe-library-personalisation.md` (new)
+
+## Local setup verification — 21 November 2026
+
+- Backup: `backups/pre-recipe-personalisation-2026-11-21T16-50-19.656Z/restaurant_cost_tracker.dump` (5,471,675 bytes; private permissions; readable/decompressible by pg_restore).
+- Prisma client regenerated. Recipe migration recorded as applied; only the unrelated Zonal agent migration remains pending.
+- All 42 original tables and 6,288 original records matched their pre-migration counts and content checksums, including 13 recipes, 3 users, 38 daily-sales records and 67 purchasing invoices.
+- Actual local database checks passed for restaurant default ordering, personal ordering, filter write/readback, reset, and server-side default-order permissions. These verification writes were rolled back, preserving user preferences and existing audit records.
+- Real browser inspection of `http://localhost:3000/recipes` confirmed the database-update warning is absent and recipe personalisation is available. A temporary verification session was revoked afterward; original sessions remained unchanged.
+- Typecheck and 33 focused recipe tests passed. No reset, seed, production change, commit, push or deployment was performed.

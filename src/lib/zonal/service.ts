@@ -8,6 +8,7 @@ import { validateReport, ZonalError, type Report } from './validation';
 import { connectZonal, mappedBranch, PARSONS_GREEN } from './connection-service';
 import { zonalAdapter } from './adapter';
 import { previewAssessment } from './approval-data';
+import { enqueueAgentReport } from './agent/outbox';
 import { validDateKey } from '../dates';
 export function fingerprint(report: Report) { return createHash('sha256').update(JSON.stringify(report)).digest('hex'); }
 export async function previewImport(prisma: PrismaClient, actor: SalesActor, input: unknown) {
@@ -19,13 +20,18 @@ export async function previewImport(prisma: PrismaClient, actor: SalesActor, inp
   if (date > londonToday()) throw new ZonalError('Future sales cannot be imported.');
   return await writePreview(prisma,actor,report,'ZONAL_MANUAL');
 }
-async function writePreview(prisma:PrismaClient|Prisma.TransactionClient,actor:SalesActor,report:Report,source:'ZONAL_MANUAL'|'ZONAL_BROWSER'){
+export async function writePreview(prisma:PrismaClient|Prisma.TransactionClient,actor:SalesActor,report:Report,source:'ZONAL_MANUAL'|'ZONAL_BROWSER',options:{capturedAt?:Date;reusePending?:boolean}={}){
+  assertAdmin(actor.role);
   const restaurant=await prisma.restaurant.findUniqueOrThrow({where:{id:actor.restaurantId}});
   if(restaurant.currency!=='GBP')throw new ZonalError('This restaurant is not configured for GBP.');
   const sale=await prisma.dailySales.findUnique({where:{restaurantId_date:{restaurantId:actor.restaurantId,date:dateValue(report.date)}}});
   const prior=await prisma.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:dateValue(report.date),status:'APPROVED'},orderBy:{completedAt:'desc'}});
   if(prior&&sale?.version===prior.salesVersion+1&&prior.fingerprint===fingerprint(report)&&sale.amountPence===BigInt(report.net))return prior.id;
-  const record=await prisma.zonalImport.create({data:{restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue(report.date),branch:report.branch,source,payload:report,fingerprint:fingerprint(report),salesVersion:sale?.version??0,previousPence:sale?.amountPence}});
+  if(options.reusePending){
+    const pending=await prisma.zonalImport.findFirst({where:{restaurantId:actor.restaurantId,date:dateValue(report.date),status:'PREVIEW'},orderBy:[{createdAt:'desc'},{id:'desc'}]});
+    if(pending&&pending.fingerprint===fingerprint(report)&&pending.salesVersion===(sale?.version??0)&&Date.now()-pending.createdAt.getTime()<30*60000)return pending.id;
+  }
+  const record=await prisma.zonalImport.create({data:{...(options.capturedAt?{createdAt:options.capturedAt}:{}),restaurantId:actor.restaurantId,actorId:actor.id,date:dateValue(report.date),branch:report.branch,source,payload:report,fingerprint:fingerprint(report),salesVersion:sale?.version??0,previousPence:sale?.amountPence}});
   return record.id;
 }
 export async function fetchAndPreview(prisma:PrismaClient,actor:SalesActor,date:string,runner=zonalAdapter.extract,latest=false){
@@ -37,10 +43,12 @@ export async function fetchAndPreview(prisma:PrismaClient,actor:SalesActor,date:
   if(!state.report)throw new ZonalError(state.message);
   const report=validateReport(state.report,branch,latest?state.report.date:date);
   if(report.date>date)throw new ZonalError('The report date exceeds the requested completed date.');
+  const capturedAt=new Date();
   return prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM "Restaurant" WHERE id = ${actor.restaurantId} FOR UPDATE`;
     const connection=await tx.zonalConnection.findUnique({where:{restaurantId:actor.restaurantId},select:{revision:true,encryptedCredentials:true,branch:true}});
     if(!connection?.encryptedCredentials||connection.revision!==state.revision||connection.branch!==branch)throw new ZonalError('The connection changed while fetching. This preview was discarded.');
+    await enqueueAgentReport(tx,actor.restaurantId,report,capturedAt);
     return await writePreview(tx,actor,report,'ZONAL_BROWSER');
   });
 }

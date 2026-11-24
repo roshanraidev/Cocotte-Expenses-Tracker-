@@ -42,6 +42,8 @@ enum AdjustmentKind {
 }
 
 model Restaurant {
+ kitchenEvents KitchenEvent[]
+ kitchenAnnouncements KitchenAnnouncement[]
  salesJobs ZonalSalesJob[]
  zonalDeliveryPreviews ZonalDeliveryPreview[]
  zonalDeliveryImports ZonalDeliveryImport[]
@@ -70,10 +72,14 @@ model Restaurant {
   recipeTypes RecipeType[]
   recipes Recipe[]
   recipeFeatures RecipeFeatureSettings?
+  recipeLibraryDefault RestaurantRecipeLibrary?
+  recipeLibraries UserRecipeLibrary[]
   zonalSyncBatches ZonalSyncBatch[]
   foodCostPeriods FoodCostPeriod[]
   foodCostPreviews FoodCostPreview[]
   zonalConnection ZonalConnection?
+  zonalAgentOutbox ZonalAgentOutbox[]
+  zonalAgentReceipts ZonalAgentReceipt[]
   zonalImports ZonalImport[]
 }
 
@@ -87,6 +93,10 @@ model RestaurantSettings {
 }
 
 model User {
+ kitchenReads KitchenRead[]
+ kitchenPreference KitchenPreference?
+ kitchenSubscriptions KitchenPushSubscription[]
+ kitchenAnnouncements KitchenAnnouncement[]
  salesJobs ZonalSalesJob[]
  zonalDeliveryPreviews ZonalDeliveryPreview[]
  zonalDeliveryImports ZonalDeliveryImport[]
@@ -112,6 +122,8 @@ model User {
   sessions     Session[]
   auditLogs    AuditLog[]
 
+  recipeLibrary UserRecipeLibrary?
+  @@unique([id, restaurantId])
   @@index([restaurantId, active])
 }
 
@@ -570,6 +582,7 @@ model RecipeComponent {
 
 // Daily-sales-only pilot; credentials are never stored here.
 model ZonalImport {
+  agentReceipts ZonalAgentReceipt[]
   syncDays ZonalSyncDay[]
   id String @id @default(cuid())
   restaurantId String
@@ -770,4 +783,137 @@ model ZonalSalesJobDay {
 model ZonalSalesWorker {
  id String @id
  heartbeatAt DateTime @default(now())
+}
+
+// Local Mac only. Immutable validated reports; no authentication material.
+model ZonalAgentOutbox {
+ id String @id @default(uuid())
+ sequence BigInt @unique @default(autoincrement())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ agentId String
+ date DateTime @db.Date
+ capturedAt DateTime
+ payload Json
+ status String @default("PENDING")
+ attempts Int @default(0)
+ nextAttemptAt DateTime @default(now())
+ leaseToken String?
+ leaseUntil DateTime?
+ lastError String?
+ receipt Json?
+ createdAt DateTime @default(now())
+ acknowledgedAt DateTime?
+ @@index([agentId,status,nextAttemptAt])
+}
+
+// Production receipt and preview commit together. Retries never renew freshness.
+model ZonalAgentReceipt {
+ id String @id @default(cuid())
+ restaurantId String
+ restaurant Restaurant @relation(fields:[restaurantId],references:[id],onDelete:Restrict)
+ agentId String
+ transferId String
+ sequence BigInt
+ date DateTime @db.Date
+ capturedAt DateTime
+ bodyHash String
+ fingerprint String
+ status String
+ previewId String?
+ preview ZonalImport? @relation(fields:[previewId],references:[id],onDelete:Restrict)
+ createdAt DateTime @default(now())
+ @@unique([agentId,transferId])
+ @@unique([agentId,sequence])
+ @@index([restaurantId,agentId,date,sequence])
+ @@index([agentId,createdAt])
+}
+
+// Display preferences only; recipe records, costing and historical references are untouched.
+model RestaurantRecipeLibrary {
+  restaurantId String @id
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  recipeIds String[] @default([])
+  revision Int @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model UserRecipeLibrary {
+  userId String @id
+  restaurantId String
+  user User @relation(fields: [userId, restaurantId], references: [id, restaurantId], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  personalOrder Json?
+  filters Json @default("{}")
+  orderRevision Int @default(0)
+  filtersRevision Int @default(0)
+  updatedAt DateTime @updatedAt
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
+}
+
+// Kitchen events are immutable; source IDs deliberately survive source removal.
+model KitchenEvent {
+ restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+ reads KitchenRead[]
+ deliveries KitchenPushDelivery[]
+ id String @id
+ restaurantId String
+ category String
+ action String
+ recipeId String?
+ announcementId String?
+ createdAt DateTime @default(now()) @db.Timestamptz
+ fanoutAt DateTime? @db.Timestamptz
+ @@index([restaurantId, createdAt(sort: Desc)], map: "KitchenEvent_restaurant_created")
+}
+model KitchenRead {
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ event KitchenEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+ userId String
+ eventId String
+ readAt DateTime? @db.Timestamptz
+ @@id([userId, eventId])
+}
+model KitchenPreference {
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ userId String @id
+ inApp Json @default("{}")
+ push Json @default("{}")
+ pushEnabled Boolean @default(false)
+}
+model KitchenAnnouncement {
+ restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+ author User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+ id String @id
+ restaurantId String
+ title String
+ body String
+ published Boolean @default(true)
+ createdBy String
+ createdAt DateTime @default(now()) @db.Timestamptz
+ updatedAt DateTime @default(now()) @db.Timestamptz
+}
+model KitchenPushSubscription {
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ deliveries KitchenPushDelivery[]
+ id String @id
+ userId String
+ endpointHash String @unique
+ ciphertext String
+ createdAt DateTime @default(now()) @db.Timestamptz
+ @@index([userId])
+}
+model KitchenPushDelivery {
+ event KitchenEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+ subscription KitchenPushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+ eventId String
+ subscriptionId String
+ attempts Int @default(0)
+ nextAttemptAt DateTime @default(now()) @db.Timestamptz
+ leaseUntil DateTime? @db.Timestamptz
+ leaseToken String?
+ sentAt DateTime? @db.Timestamptz
+ failed Boolean @default(false)
+ @@id([eventId, subscriptionId])
 }
