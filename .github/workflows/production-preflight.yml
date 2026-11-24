@@ -1,0 +1,65 @@
+name: Cocotte production preflight
+on:
+  push:
+    branches: [ops/production-preflight]
+permissions: {}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read the production release and PostgreSQL catalog
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/cocotte-ssh"
+          ssh-keyscan -t ed25519 "$AWS_HOST" > "$RUNNER_TEMP/cocotte-host" 2>/dev/null
+          test "$(ssh-keygen -lf "$RUNNER_TEMP/cocotte-host" | awk '{print $2}' | sort -u)" = 'SHA256:D/0uRfW6LV1J/mVe0rJwIc9ZzRzn3eBzWXKSF74h6C8'
+          ssh -i "$RUNNER_TEMP/cocotte-ssh" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/cocotte-host" ubuntu@"$AWS_HOST" bash -se <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/Cocotte-Expenses-Tracker-
+          printf 'Release: '; git rev-parse HEAD
+          printf 'Next build: '; cat .next/BUILD_ID; printf '\n'
+          systemctl is-active cocotte.service
+          export COCOTTE_SERVICE_PID="$(systemctl show cocotte.service -p MainPID --value)"
+          export COCOTTE_SERVICE_CWD="$(systemctl show cocotte.service -p WorkingDirectory --value)"
+          test "$COCOTTE_SERVICE_CWD" = "$PWD"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const {Client} = require('pg');
+          const read = () => {
+            const pid = process.env.COCOTTE_SERVICE_PID;
+            const entries = fs.readFileSync('/proc/' + pid + '/environ','utf8').split('\0');
+            const setting = entries.find(entry => entry.startsWith('DATABASE_URL='));
+            if (setting) return {source:'service environment', url:setting.slice(13)};
+            return {source:'service working-directory dotenv', url:require('dotenv').parse(fs.readFileSync('.env')).DATABASE_URL};
+          };
+          (async () => {
+            const connection = read();
+            const client = new Client({connectionString:connection.url, connectionTimeoutMillis:5000});
+            try {
+              await client.connect();
+              await client.query('BEGIN READ ONLY');
+              const {rows:[metadata]} = await client.query("select current_database() database, current_setting('server_version') version, current_schema() schema, pg_is_in_recovery() replica, has_schema_privilege('public','CREATE') can_create");
+              const {rows:history} = await client.query('SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at');
+              const dirs = fs.readdirSync('prisma/migrations',{withFileTypes:true}).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+              const applied = history.filter(row => row.finished_at && !row.rolled_back_at);
+              const report = {
+                source:connection.source, ...metadata, applied:applied.length,
+                pending:dirs.filter(name => !applied.some(row => row.migration_name === name)),
+                failed:history.filter(row => !row.finished_at && !row.rolled_back_at).map(row => row.migration_name),
+                unmapped:applied.filter(row => !dirs.includes(row.migration_name)).map(row => row.migration_name),
+                checksumMismatch:applied.filter(row => dirs.includes(row.migration_name) && crypto.createHash('sha256').update(fs.readFileSync('prisma/migrations/'+row.migration_name+'/migration.sql')).digest('hex') !== row.checksum).map(row => row.migration_name)
+              };
+              const {rows:tables} = await client.query("select relname, has_table_privilege(oid,'TRIGGER') can_trigger from pg_class where relnamespace='public'::regnamespace and relkind='r' and (relname like 'Kitchen%' or relname in ('Recipe','RecipeType','RecipeComponent','WeeklySpecial','RecipeFeatureSettings','RestaurantRecipeLibrary','UserRecipeLibrary','ZonalAgentReceipt','ZonalAgentOutbox')) order by relname");
+              console.log(JSON.stringify({report,tables},null,2));
+            } finally {await client.end();}
+          })().catch(error => {console.error('Preflight failed:',error.code||error.name);process.exitCode=1;});
+          NODE
+          command -v pg_dump
+          command -v pg_restore
+          REMOTE
